@@ -40,4 +40,7 @@ scope:
   implemented.
 - PostgreSQL row-level security is planned as defence in depth; isolation is
   currently enforced in application code only.
-- No rate limiting on `/auth/login` or `/auth/register` yet.
+- No rate limiting on `/auth/login`, `/auth/register` or the admin sign-in form
+  yet.
+- The admin UI relies on `SameSite=Lax` cookies for CSRF protection; per-form
+  CSRF tokens are required before destructive admin actions are added.

@@ -12,7 +12,7 @@ use axum::{
 };
 use sqlx::PgPool;
 
-use crate::state::AppState;
+use crate::{state::AppState, util::format_duration};
 
 const DATABASE_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -97,19 +97,6 @@ async fn database_status(db: &PgPool) -> DatabaseStatus {
             tracing::warn!("status page database check timed out");
             DatabaseStatus::Down
         }
-    }
-}
-
-fn format_duration(duration: Duration) -> String {
-    let secs = duration.as_secs();
-    if secs < 60 {
-        format!("{secs}s")
-    } else if secs < 3_600 {
-        format!("{}m {:02}s", secs / 60, secs % 60)
-    } else if secs < 86_400 {
-        format!("{}h {:02}m", secs / 3_600, (secs % 3_600) / 60)
-    } else {
-        format!("{}d {:02}h", secs / 86_400, (secs % 86_400) / 3_600)
     }
 }
 
@@ -260,6 +247,7 @@ footer p { margin: 8px 0 0; }
 
   <footer>
     <a href="https://github.com/IanHead/CareLibre">Repository</a> ·
+    <a href="/admin">Administration</a> ·
     <a href="/docs">API documentation</a>
     <p>AGPL-3.0-or-later</p>
   </footer>
@@ -278,13 +266,5 @@ mod tests {
             escape_html(r#"<script>"x" & 'y'"#),
             "&lt;script&gt;&quot;x&quot; &amp; &#39;y&#39;"
         );
-    }
-
-    #[test]
-    fn formats_durations() {
-        assert_eq!(format_duration(Duration::from_secs(9)), "9s");
-        assert_eq!(format_duration(Duration::from_secs(75)), "1m 15s");
-        assert_eq!(format_duration(Duration::from_secs(3_900)), "1h 05m");
-        assert_eq!(format_duration(Duration::from_secs(90_000)), "1d 01h");
     }
 }

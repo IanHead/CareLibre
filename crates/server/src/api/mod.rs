@@ -22,6 +22,7 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(status::index))
         .route("/healthz", get(health::liveness))
         .route("/readyz", get(health::readiness))
+        .nest("/admin", crate::admin::router())
         .nest("/api/v1", v1_routes())
         .with_state(state);
 

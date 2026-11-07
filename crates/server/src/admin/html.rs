@@ -1,0 +1,223 @@
+//! Shared HTML helpers for the server-rendered admin area.
+//!
+//! No template engine and no client-side framework: pages are plain HTML with
+//! inline CSS, which keeps the deployment a single binary.
+
+pub fn escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(character),
+        }
+    }
+    out
+}
+
+/// Everything needed to render the signed-in chrome.
+pub struct Who<'a> {
+    pub email: &'a str,
+    pub organisation: &'a str,
+    pub role: &'a str,
+}
+
+/// Full page shell. `active` is the nav href to highlight.
+pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> String {
+    let mut out = String::with_capacity(body.len() + 8_000);
+
+    out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
+    out.push_str("<meta charset=\"utf-8\">\n");
+    out.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+    out.push_str("<link rel=\"icon\" href=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>\">\n");
+    out.push_str("<title>");
+    out.push_str(&escape(title));
+    out.push_str(" · CareLibre Admin</title>\n<style>\n");
+    out.push_str(STYLE);
+    out.push_str("</style>\n</head>\n<body>\n");
+
+    if let Some(who) = who {
+        out.push_str("<header class=\"topbar\">\n<div class=\"topbar-inner\">\n");
+        out.push_str(
+            "<a class=\"brand\" href=\"/admin\">CareLibre <span>Admin</span></a>\n<nav>\n",
+        );
+        out.push_str(&nav_item("/admin", "Dashboard", active));
+        out.push_str(&nav_item("/admin/members", "Members", active));
+        out.push_str(&nav_item("/admin/sessions", "Sessions", active));
+        out.push_str(&nav_item("/admin/schema", "Database", active));
+        out.push_str("</nav>\n<div class=\"who\">\n");
+        out.push_str("<span class=\"who-org\">");
+        out.push_str(&escape(who.organisation));
+        out.push_str("</span>\n<span class=\"who-mail\">");
+        out.push_str(&escape(who.email));
+        out.push_str("</span>\n<span class=\"pill\">");
+        out.push_str(&escape(who.role));
+        out.push_str("</span>\n<form method=\"post\" action=\"/admin/logout\"><button class=\"link-button\" type=\"submit\">Sign out</button></form>\n");
+        out.push_str("</div>\n</div>\n</header>\n");
+    }
+
+    out.push_str("<main>\n");
+    out.push_str(body);
+    out.push_str("\n<footer><a href=\"/\">Status</a> · <a href=\"/docs\">API docs</a> · <span>v");
+    out.push_str(env!("CARGO_PKG_VERSION"));
+    out.push_str("</span></footer>\n</main>\n</body>\n</html>\n");
+
+    out
+}
+
+fn nav_item(href: &str, label: &str, active: &str) -> String {
+    if href == active {
+        format!("<a class=\"nav-item active\" href=\"{href}\">{label}</a>")
+    } else {
+        format!("<a class=\"nav-item\" href=\"{href}\">{label}</a>")
+    }
+}
+
+pub fn page_head(title: &str, subtitle: &str) -> String {
+    format!(
+        "<div class=\"page-head\"><div><h1>{}</h1><p class=\"muted\">{}</p></div></div>",
+        escape(title),
+        escape(subtitle)
+    )
+}
+
+pub fn error_page(title: &str, message: &str) -> String {
+    let body = format!(
+        "<div class=\"page-head\"><h1>{}</h1><p class=\"muted\">{}</p></div>\
+         <p><a href=\"/admin\">Return to the dashboard</a></p>",
+        escape(title),
+        escape(message)
+    );
+    layout(title, "", None, &body)
+}
+
+const STYLE: &str = r#"
+:root {
+  color-scheme: light dark;
+  --bg: #f5f7f8;
+  --card: #ffffff;
+  --text: #171a1f;
+  --muted: #68707d;
+  --border: #e2e6ea;
+  --accent: #0d6b62;
+  --accent-soft: #e6f4f1;
+  --ok: #128a4c;
+  --bad: #cf2f2f;
+  --warn: #b45309;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216;
+    --card: #161a20;
+    --text: #e8eaef;
+    --muted: #98a1b0;
+    --border: #262c37;
+    --accent: #6ee7d5;
+    --accent-soft: #12312d;
+    --ok: #3ddc84;
+    --bad: #ff6b6b;
+    --warn: #fbbf24;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .92em;
+}
+.topbar {
+  background: var(--card); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 5;
+}
+.topbar-inner {
+  max-width: 1180px; margin: 0 auto; padding: 0 20px; height: 58px;
+  display: flex; align-items: center; gap: 26px;
+}
+.brand { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; color: var(--text); white-space: nowrap; }
+.brand span { color: var(--muted); font-weight: 400; }
+nav { display: flex; gap: 4px; flex: 1; }
+.nav-item {
+  padding: 7px 11px; border-radius: 7px; font-size: 14px; color: var(--muted);
+}
+.nav-item:hover { background: var(--bg); text-decoration: none; }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.who-org { color: var(--text); font-weight: 600; }
+.who-mail { display: none; }
+@media (min-width: 1100px) { .who-mail { display: inline; } }
+.pill {
+  border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+}
+.link-button {
+  background: none; border: 0; padding: 0; color: var(--accent);
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+main { max-width: 1180px; margin: 0 auto; padding: 34px 20px 60px; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
+h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 34px 0 12px; font-weight: 600; }
+h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.muted { color: var(--muted); }
+.sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+.card p { margin: 0; }
+.card .big { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13.5px; vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+tbody tr:hover { background: var(--bg); }
+.badge {
+  display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .05em; border: 1px solid var(--border);
+}
+.badge.pk { color: var(--accent); border-color: var(--accent); }
+.badge.fk { color: var(--warn); border-color: var(--warn); }
+.badge.id { color: var(--muted); }
+.badge.yes { color: var(--bad); border-color: var(--bad); }
+.badge.no { color: var(--muted); }
+.form { max-width: 420px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 24px; }
+.form label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+.form label:first-of-type { margin-top: 0; }
+.form input {
+  width: 100%; padding: 9px 11px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 14px;
+}
+.form input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.form button {
+  margin-top: 20px; width: 100%; padding: 10px 14px; border-radius: 7px; border: 0;
+  background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+}
+@media (prefers-color-scheme: dark) { .form button { color: #062521; } }
+.alert { background: color-mix(in srgb, var(--bad) 12%, var(--card)); border: 1px solid var(--bad); color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 16px; }
+.erd { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px; overflow: auto; }
+.erd svg { display: block; min-width: 900px; }
+.erd-card { fill: var(--card); stroke: var(--border); }
+.erd-title { fill: var(--text); font-weight: 650; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.erd-col { fill: var(--text); font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.erd-type { fill: var(--muted); font-size: 10.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.erd-rule { stroke: var(--border); stroke-width: 1; }
+.erd-edge { stroke: var(--muted); fill: none; stroke-width: 1.3; opacity: .6; }
+.erd-pk { fill: var(--accent); }
+.erd-fk { fill: var(--warn); }
+.schema-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
+.schema-card h3 { font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--text); font-family: ui-monospace, monospace; }
+.schema-card table { border: 0; background: transparent; }
+.schema-card th, .schema-card td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.schema-card th { font-size: 11px; }
+.schema-card tbody tr:hover { background: transparent; }
+.schema-card ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
+.schema-card ul code { color: var(--text); }
+footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12.5px; display: flex; gap: 8px; }
+"#;

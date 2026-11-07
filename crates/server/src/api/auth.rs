@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::extractor::AuthContext,
-    auth::{password, role::Role, token},
+    auth::{password, refresh, role::Role, token},
     error::{AppError, ErrorBody},
     state::AppState,
 };
@@ -325,7 +325,7 @@ pub async fn refresh(
     headers: HeaderMap,
     Json(payload): Json<RefreshRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
-    let token_hash = sha256_hex(&payload.refresh_token);
+    let token_hash = refresh::hash(&payload.refresh_token);
 
     let mut tx = state.db.begin().await?;
 
@@ -394,7 +394,7 @@ pub async fn logout(
         "UPDATE auth_sessions SET revoked_at = now()
          WHERE refresh_token_hash = $1 AND revoked_at IS NULL",
     )
-    .bind(sha256_hex(&payload.refresh_token))
+    .bind(refresh::hash(&payload.refresh_token))
     .execute(&state.db)
     .await?;
 
@@ -572,22 +572,7 @@ fn select_membership(
 }
 
 fn generate_refresh_token() -> (String, String) {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    use rand::RngCore;
-
-    let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
-    let token = URL_SAFE_NO_PAD.encode(bytes);
-    let hash = sha256_hex(&token);
-    (token, hash)
-}
-
-fn sha256_hex(value: &str) -> String {
-    use sha2::{Digest, Sha256};
-
-    let mut hasher = Sha256::new();
-    hasher.update(value.as_bytes());
-    hex::encode(hasher.finalize())
+    refresh::generate()
 }
 
 fn user_agent(headers: &HeaderMap) -> Option<String> {

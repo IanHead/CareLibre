@@ -115,3 +115,33 @@ async fn root_serves_the_status_page() {
     assert!(html.contains("/api/v1"));
     assert!(html.contains("/api-docs/openapi.json"));
 }
+
+#[tokio::test]
+async fn admin_requires_authentication() {
+    let response = get("/admin").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/admin/login")
+    );
+}
+
+#[tokio::test]
+async fn admin_schema_requires_authentication() {
+    let response = get("/admin/schema").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
+async fn admin_login_page_is_public() {
+    let response = get("/admin/login").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+    assert!(html.contains("action=\"/admin/login\""));
+    assert!(html.contains("name=\"email\""));
+}

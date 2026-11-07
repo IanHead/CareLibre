@@ -36,6 +36,7 @@ docker compose up --build
 ```
 
 - Status page: <http://localhost:8484/>
+- Admin UI: <http://localhost:8484/admin>
 - API: <http://localhost:8484/api/v1>
 - Swagger UI: <http://localhost:8484/docs>
 - OpenAPI JSON: <http://localhost:8484/api-docs/openapi.json>
@@ -105,6 +106,7 @@ curl -sX POST localhost:8484/api/v1/auth/register \
 
 ```
 crates/server/src/
+  admin/        server-rendered admin UI and schema explorer
   api/          HTTP routes, DTOs, OpenAPI
   auth/         password hashing, JWTs, extractor, roles
   config.rs     environment configuration
@@ -112,13 +114,21 @@ crates/server/src/
   error.rs      error envelope
   state.rs      shared app state
 migrations/     sqlx migrations (forward-only)
-docs/           architecture, ADRs, roadmap
+docs/           architecture, ADRs, admin, roadmap
 ```
 
-## Development
+## Administration
 
-```sh
-make test     # cargo test --workspace
+`/admin` is a server-rendered admin area for owners and administrators:
+
+- dashboard with member/session counts and recent audit events
+- member and active-session lists
+- database explorer mapping tables, columns, keys and relationships (structure
+  only — no record browsing)
+
+See [`docs/admin.md`](docs/admin.md) for access rules and security notes.
+
+## Development
 make lint     # clippy, warnings as errors
 make fmt      # rustfmt
 make build
