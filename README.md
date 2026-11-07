@@ -25,6 +25,8 @@ separate repositories and talk to this server over HTTP.
 
 See [`docs/adr/`](docs/adr/) for the decisions and their trade-offs.
 
+Connecting the desktop/mobile clients: [`docs/connecting-clients.md`](docs/connecting-clients.md).
+
 ## Quick start (Docker)
 
 ```sh
