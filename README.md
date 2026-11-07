@@ -131,7 +131,8 @@ docs/           architecture, ADRs, admin, roadmap
 
 See [`docs/admin.md`](docs/admin.md) for access rules and security notes.
 The planned first-run experience is described in
-[`docs/onboarding.md`](docs/onboarding.md).
+[`docs/onboarding.md`](docs/onboarding.md); the authorisation model is in
+[`docs/permissions.md`](docs/permissions.md).
 
 ## Development
 make lint     # clippy, warnings as errors

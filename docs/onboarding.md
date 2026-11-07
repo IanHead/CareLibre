@@ -68,8 +68,8 @@ Required tasks count towards "ready to go live".
 
 | Key | Task | C | Required | Roles | Notes |
 |---|---|---|---|---|---|
-| `access.second_admin` | Add a second owner or administrator | A | yes | owner | Prevents a single-account lockout |
-| `access.roles` | Review roles and permission sets | M | yes | owner | Built-in roles today; configurable sets later |
+| `access.second_admin` | Add a second owner or administrator | A | yes | owner | Detected as two active owners or Administrator-set holders |
+| `access.roles` | Review personas and assign permission sets | M | yes | owner | Seven OOTB personas; see [`permissions.md`](permissions.md) |
 | `security.production` | Confirm production settings | M | yes | owner | `APP_ENV=production`, unique JWT secret, TLS, no default secrets |
 | `security.backups` | Verify database backups | M | yes | owner | Test a restore, not just a schedule |
 
@@ -223,20 +223,16 @@ worse than an empty checkbox.
 
 ## Permission sets
 
-Two layers, deliberately separate:
+See [`permissions.md`](permissions.md) for the capability catalogue and the persona matrix. Summary:
 
-1. **Built-in roles (today).** `owner`, `admin`, `manager`, `staff`, `viewer`.
-   Onboarding's `access.roles` task explains them and the principle of least
-   privilege.
-2. **Configurable permission sets (later).** Named sets of capabilities assigned
-   to users, with the built-in roles as presets. Required guardrails:
-   - `owner` cannot be removed or lose every capability.
-   - A change cannot lock the last owner out.
-   - Permission changes are audited.
-   - Screens and API endpoints check capabilities, not role names.
-
-Until layer 2 ships, the onboarding task points at the Users screen and explains
-the fixed roles; it must not promise configurable permissions.
+1. **Owner** — the registration account, bypasses checks, protected by the
+   last-owner rule.
+2. **Capability-based permission sets** — additive sets assigned to users. Seven
+   OOTB personas: Rostering, Intake, Human Resources, Senior Management,
+   House Manager, Finance, Administrator. Administrator is immutable; the others
+   can be edited.
+3. **Scopes (later)** — org-wide today; per-division/house scoping is required
+   before House Manager is marketed as "their house" only.
 
 ## Data import
 
@@ -268,7 +264,7 @@ half-linked relationships.
 | Contact/division/service/rate CRUD screens or API | most auto tasks | **not built** |
 | Invitation flow (email or token) | `access.second_admin` | **not built** |
 | CSV import | migration mode, `people.import` | **not built** |
-| Configurable permission sets | `access.roles` full version | **not built** |
+| Configurable permission sets | `access.roles`, scoped personas | **designed, not built** ([permissions.md](permissions.md)) |
 | Restore verification guide | `security.backups` | docs only |
 | Accounting/SMS integrations | stage 7 | **not built** |
 | Production checks (env, secret length, TLS) | `security.production` | partially detectable |
@@ -333,8 +329,8 @@ dead links, which is worse than no checklist.
 
 ## Decisions needed
 
-1. **Permission sets:** keep built-in roles for now, or design configurable sets
-   before onboarding ships? (Recommendation: built-in roles in Phase 1.)
+1. ~~**Permission sets:** fixed roles or configurable?~~ **Resolved:** configurable
+   capability sets with seven OOTB personas; see [`permissions.md`](permissions.md).
 2. **Invitations:** email delivery or shareable one-time link? (Email needs SMTP
    configuration; a link works for self-hosted setups immediately.)
 3. **Import scope:** CSV first, or direct connectors (Xero/QuickBooks) as an

@@ -18,7 +18,7 @@ slices: each phase ships schema, API, tests and docs together.
 
 - Invite flow, password reset, email verification
 - Account settings, organisation settings
-- Role-based authorisation helpers (`require_role`)
+- Capability-based permission sets and OOTB personas
 - Pagination, filtering and sorting conventions
 - Request IDs and structured audit for every mutation
 - Onboarding checklist and dashboard (see [`onboarding.md`](onboarding.md))
