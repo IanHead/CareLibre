@@ -1,6 +1,7 @@
 //! HTTP routing.
 
 pub mod auth;
+pub mod contacts;
 pub mod health;
 pub mod openapi;
 pub mod status;
@@ -42,6 +43,9 @@ fn v1_routes() -> Router<AppState> {
         .route("/auth/refresh", post(auth::refresh))
         .route("/auth/logout", post(auth::logout))
         .route("/me", get(auth::me))
+        .route("/contacts", get(contacts::list).post(contacts::create))
+        .route("/contacts/{id}", get(contacts::get).patch(contacts::update))
+        .route("/custom-fields", get(contacts::list_custom_fields))
 }
 
 fn cors_layer(config: &Config) -> CorsLayer {
