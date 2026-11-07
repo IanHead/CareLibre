@@ -38,6 +38,7 @@ cookie is replayed.
 | `/admin/permission-sets` | Capabilities and the seven OOTB personas (`permission_sets.manage`) |
 | `/admin/schema` | Database explorer (see below) |
 | `/admin/custom-fields` | User-defined fields for every object (`custom_fields.manage`) |
+| `/admin/relationships` | Two-sided relationship graph, with search and per-party focus (`relationships.read`) |
 | `/admin/users/{id}/access` | Assign one or more permission sets to a user |
 | `/admin/invitations` | Create, inspect and revoke one-time invitation links (`users.manage`) |
 
@@ -48,6 +49,20 @@ Navigation is a grouped left sidebar — **Home**, **Access**, **Data** and
 **System** — with a filter box at the top. Groups and items are capability-gated,
 so each account sees only what it can use. On narrow screens the sidebar becomes
 a stacked header and the filter still applies.
+
+## Relationship network
+
+`/admin/relationships` visualises the care graph. Each relationship is one
+two-sided link: both endpoints carry a role (`general_practitioner`/`patient`,
+`guardian`/`person_supported`, `employee`/`employer`).
+
+- the default view draws every contact on the outer ring and every organisation
+  on the inner ring, with hover labels
+- searching a name or focusing a party redraws the graph as an ego network at
+  1–3 hops
+- focused views print each endpoint's role beside its end of the edge and list
+  the connections in a table
+- organisations are amber, contacts teal, and the focused party is ringed
 
 ## Database explorer
 

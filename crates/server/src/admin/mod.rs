@@ -12,6 +12,7 @@ pub mod erd;
 pub mod html;
 pub mod import_ui;
 pub mod invitations;
+pub mod network;
 pub mod onboarding;
 pub mod pages;
 pub mod permission_sets;
@@ -32,6 +33,7 @@ pub fn router() -> Router<AppState> {
         .route("/logout", post(auth::logout))
         .route("/users", get(pages::users))
         .route("/sessions", get(pages::sessions))
+        .route("/relationships", get(network::page))
         .route("/schema", get(schema::page))
         .route(
             "/custom-fields",

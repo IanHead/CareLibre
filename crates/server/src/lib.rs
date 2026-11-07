@@ -13,6 +13,7 @@ pub mod error;
 pub mod import;
 pub mod onboarding;
 pub mod permissions;
+pub mod relationships;
 pub mod state;
 pub mod telemetry;
 pub mod util;

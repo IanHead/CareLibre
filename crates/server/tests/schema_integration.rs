@@ -280,8 +280,8 @@ async fn relationships_cannot_cross_tenants() {
     // composite (organisation_id, contact_id) foreign key.
     let cross_tenant = sqlx::query(
         "INSERT INTO relationships
-            (id, organisation_id, from_contact_id, to_contact_id, relationship_type)
-         VALUES ($1, $2, $3, $4, 'broker')",
+            (id, organisation_id, from_contact_id, to_contact_id, from_role, to_role)
+         VALUES ($1, $2, $3, $4, 'broker', 'client')",
     )
     .bind(Uuid::now_v7())
     .bind(organisation_b)
@@ -330,8 +330,8 @@ async fn organisations_are_unified_and_linked_by_relationships() {
     // Internal (tenant) and external organisations are linked by relationships.
     sqlx::query(
         "INSERT INTO relationships
-            (id, organisation_id, from_organisation_id, to_organisation_id, relationship_type)
-         VALUES ($1, $2, $3, $4, 'referral_partner')",
+            (id, organisation_id, from_organisation_id, to_organisation_id, from_role, to_role)
+         VALUES ($1, $2, $3, $4, 'referral_partner', 'referred_by')",
     )
     .bind(Uuid::now_v7())
     .bind(tenant)
@@ -350,8 +350,8 @@ async fn organisations_are_unified_and_linked_by_relationships() {
         .unwrap();
     let cross_tenant = sqlx::query(
         "INSERT INTO relationships
-            (id, organisation_id, from_organisation_id, to_organisation_id, relationship_type)
-         VALUES ($1, $2, $3, $4, 'referral_partner')",
+            (id, organisation_id, from_organisation_id, to_organisation_id, from_role, to_role)
+         VALUES ($1, $2, $3, $4, 'referral_partner', 'referred_by')",
     )
     .bind(Uuid::now_v7())
     .bind(tenant)

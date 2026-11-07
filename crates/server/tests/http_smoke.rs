@@ -82,6 +82,22 @@ async fn me_rejects_a_garbage_token() {
 }
 
 #[tokio::test]
+async fn relationships_require_authentication() {
+    let response =
+        get("/api/v1/relationships?contact_id=00000000-0000-0000-0000-000000000000").await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = get("/api/v1/relationships/graph").await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn admin_network_requires_authentication() {
+    let response = get("/admin/relationships").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
 async fn openapi_document_is_served() {
     let response = get("/api-docs/openapi.json").await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -90,6 +106,8 @@ async fn openapi_document_is_served() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["info"]["title"], "CareLibre API");
     assert!(json["paths"]["/api/v1/auth/login"].is_object());
+    assert!(json["paths"]["/api/v1/relationships"].is_object());
+    assert!(json["paths"]["/api/v1/relationships/graph"].is_object());
 }
 
 #[tokio::test]

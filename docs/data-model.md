@@ -106,14 +106,19 @@ text so new types need no migration; keep this list in sync when adding one.
 - `contacts` holds people. Deliberately no `type` column: a participant can be a
   worker on another shift, and a family member can be a guardian, a nominee and
   a driver without duplicating the record.
-- `relationships` is directed and typed (`relationship_type`, free text) with an
-  optional `inverse_name`. Each side is exactly one `contact` or one
-  `organisation`, so contact↔contact, contact↔organisation and
+- `relationships` is **two-sided**: each row stores `from_role` and `to_role`,
+  so both endpoints carry their own label. A doctor/patient link is one row with
+  `from_role = 'general_practitioner'` and `to_role = 'patient'`; reading it the
+  other way gives patient/doctor without a second row. Each side is exactly one
+  `contact` or one `organisation`, so contact↔contact, contact↔organisation and
   organisation↔organisation links all use the same table. Dates are optional.
+  The `relationship_directions` view flattens each row into both directions,
+  which is the shape graph clients consume.
 
-Examples: a contact *works for* an organisation, an organisation *refers to*
-another organisation, a contact is *guardian of* another contact, a person is a
-*doctor at* a health provider.
+Examples: a contact *is employee of* an organisation (`employee`/`employer`), a
+contact *is guardian of* another contact (`guardian`/`person supported`), and a
+health provider *is general practitioner of* a person
+(`general_practitioner`/`patient`).
 
 ## Divisions, services, rates
 

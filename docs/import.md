@@ -115,8 +115,8 @@ O-0001,Example Broker,broker,12345678901,contact@example.com,0400 000 000,https:
 ### Relationships — `relationships.csv`
 
 ```csv
-from_type,from_external_id,to_type,to_external_id,relationship_type,inverse_name,start_date,end_date,notes
-contact,C-0001,organisation,O-0001,case_manager,client,2026-07-01,,Example row
+from_type,from_external_id,to_type,to_external_id,from_role,to_role,start_date,end_date,notes
+contact,C-0001,organisation,O-0001,support_coordinator,participant,2026-07-01,,Example row
 ```
 
 | Column | Required | Rules |
@@ -125,13 +125,13 @@ contact,C-0001,organisation,O-0001,case_manager,client,2026-07-01,,Example row
 | `from_external_id` | yes | must resolve in the org (imported or existing) |
 | `to_type` | yes | `contact` or `organisation` |
 | `to_external_id` | yes | must resolve |
-| `relationship_type` | yes | 1–64 chars |
-| `inverse_name` | no | free text |
+| `from_role` | yes | role of the from party, 1–64 chars |
+| `to_role` | yes | role of the to party, 1–64 chars |
 | `start_date`, `end_date` | no | dates; `end_date >= start_date` |
 | `notes` | no | free text |
 
 Relationships have no `external_id`; duplicates are detected by the full endpoint
-pair + type + start date.
+pair plus both roles.
 
 ### Divisions — `divisions.csv`
 

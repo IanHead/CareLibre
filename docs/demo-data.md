@@ -53,8 +53,8 @@ Organisation slug: `blue-dreams-care`.
 | Staff | 300, with `employee` relationship to the organisation |
 | Support networks | 600 family/guardian contacts, 200 emergency contacts |
 | External organisations | 40 (GPs, pharmacies, support coordinators, plan managers, allied health, transport, equipment, local businesses, advocacy) |
-| External contacts | 2 per external organisation (80), linked by `contact_at` |
-| Relationships | ~3,220: guardians, family, emergency contacts, support coordinators, GPs, pharmacies, plan managers, employment |
+| External contacts | 2 per external organisation (80), linked as representative/organisation |
+| Relationships | ~3,220 two-sided links: person_supported/guardian, person_supported/family, participant/support_coordinator, patient/general_practitioner, customer/pharmacy, participant/plan_manager, employee/employer |
 | Custom fields | `ndis_number`, `plan_end_date`, `risk_level` for clients; `employee_number` for staff |
 | Custom values | ~2,100 |
 | Rostering | 14 days, 420 published shifts, 84 sessions, 840 client/worker assignments |

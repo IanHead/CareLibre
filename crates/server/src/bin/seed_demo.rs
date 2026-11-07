@@ -760,7 +760,7 @@ async fn insert_staff(
         sqlx::query(
             "INSERT INTO relationships
                 (id, organisation_id, from_contact_id, to_organisation_id,
-                 relationship_type, inverse_name)
+                 from_role, to_role)
              VALUES ($1, $2, $3, $4, 'employee', 'employer')",
         )
         .bind(Uuid::now_v7())
@@ -857,8 +857,8 @@ async fn insert_external_organisations(
             sqlx::query(
                 "INSERT INTO relationships
                     (id, organisation_id, from_contact_id, to_organisation_id,
-                     relationship_type, inverse_name)
-                 VALUES ($1, $2, $3, $4, 'contact_at', 'contact')",
+                     from_role, to_role)
+                 VALUES ($1, $2, $3, $4, 'representative', 'organisation')",
             )
             .bind(Uuid::now_v7())
             .bind(organisation)
@@ -910,14 +910,14 @@ async fn insert_client_networks(
         .execute(&mut **tx)
         .await?;
 
-        let relationship_type = if index % 3 == 0 { "guardian" } else { "family" };
+        let to_role = if index % 3 == 0 { "guardian" } else { "family" };
         add_contact_contact(
             tx,
             organisation,
             *client,
             family_id,
-            relationship_type,
-            Some("person supported"),
+            "person_supported",
+            to_role,
         )
         .await?;
 
@@ -950,8 +950,8 @@ async fn insert_client_networks(
                 organisation,
                 *client,
                 emergency_id,
+                "person_supported",
                 "emergency_contact",
-                Some("person supported"),
             )
             .await?;
         }
@@ -964,8 +964,8 @@ async fn insert_client_networks(
             organisation,
             *client,
             coordinator,
+            "participant",
             "support_coordinator",
-            Some("participants"),
         )
         .await?;
 
@@ -975,22 +975,14 @@ async fn insert_client_networks(
             organisation,
             *client,
             doctor,
+            "patient",
             "general_practitioner",
-            Some("patients"),
         )
         .await?;
 
         if index % 2 == 0 {
             let pharmacy = networking.pharmacy[rng.gen_range(0..networking.pharmacy.len())];
-            add_contact_org(
-                tx,
-                organisation,
-                *client,
-                pharmacy,
-                "pharmacy",
-                Some("customers"),
-            )
-            .await?;
+            add_contact_org(tx, organisation, *client, pharmacy, "customer", "pharmacy").await?;
         }
 
         if index % 5 < 2 {
@@ -1001,8 +993,8 @@ async fn insert_client_networks(
                 organisation,
                 *client,
                 plan_manager,
+                "participant",
                 "plan_manager",
-                Some("participants"),
             )
             .await?;
         }
@@ -1015,8 +1007,8 @@ async fn insert_client_networks(
                 organisation,
                 *client,
                 coordinator_contact,
+                "participant",
                 "support_coordinator",
-                Some("participant"),
             )
             .await?;
         }
@@ -1173,21 +1165,21 @@ async fn add_contact_contact(
     organisation: Uuid,
     from: Uuid,
     to: Uuid,
-    relationship_type: &str,
-    inverse: Option<&str>,
+    from_role: &str,
+    to_role: &str,
 ) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO relationships
             (id, organisation_id, from_contact_id, to_contact_id,
-             relationship_type, inverse_name)
+             from_role, to_role)
          VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(Uuid::now_v7())
     .bind(organisation)
     .bind(from)
     .bind(to)
-    .bind(relationship_type)
-    .bind(inverse)
+    .bind(from_role)
+    .bind(to_role)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1198,21 +1190,21 @@ async fn add_contact_org(
     organisation: Uuid,
     from: Uuid,
     to_org: Uuid,
-    relationship_type: &str,
-    inverse: Option<&str>,
+    from_role: &str,
+    to_role: &str,
 ) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO relationships
             (id, organisation_id, from_contact_id, to_organisation_id,
-             relationship_type, inverse_name)
+             from_role, to_role)
          VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(Uuid::now_v7())
     .bind(organisation)
     .bind(from)
     .bind(to_org)
-    .bind(relationship_type)
-    .bind(inverse)
+    .bind(from_role)
+    .bind(to_role)
     .execute(&mut **tx)
     .await?;
     Ok(())

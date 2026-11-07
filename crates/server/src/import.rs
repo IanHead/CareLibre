@@ -620,18 +620,18 @@ const RELATIONSHIP_COLUMNS: &[Column] = &[
         note: "",
     },
     Column {
-        name: "relationship_type",
+        name: "from_role",
         required: true,
         kind: Kind::Text,
         max_len: Some(64),
-        note: "",
+        note: "role of the from party, e.g. general_practitioner",
     },
     Column {
-        name: "inverse_name",
-        required: false,
+        name: "to_role",
+        required: true,
         kind: Kind::Text,
         max_len: Some(64),
-        note: "",
+        note: "role of the to party, e.g. patient",
     },
     Column {
         name: "start_date",
@@ -1831,7 +1831,8 @@ async fn insert_relationship(
         None
     };
 
-    let relationship_type = value(row, "relationship_type");
+    let from_role = value(row, "from_role");
+    let to_role = value(row, "to_role");
     let duplicate: bool = sqlx::query_scalar(
         "SELECT EXISTS(
             SELECT 1 FROM relationships
@@ -1840,7 +1841,8 @@ async fn insert_relationship(
               AND from_organisation_id IS NOT DISTINCT FROM $3
               AND to_contact_id IS NOT DISTINCT FROM $4
               AND to_organisation_id IS NOT DISTINCT FROM $5
-              AND relationship_type=$6
+              AND from_role=$6
+              AND to_role=$7
         )",
     )
     .bind(organisation)
@@ -1848,7 +1850,8 @@ async fn insert_relationship(
     .bind(from_org)
     .bind(to_contact)
     .bind(to_org)
-    .bind(relationship_type)
+    .bind(from_role)
+    .bind(to_role)
     .fetch_one(&mut **tx)
     .await
     .map_err(|error| error.to_string())?;
@@ -1860,7 +1863,7 @@ async fn insert_relationship(
     sqlx::query(
         "INSERT INTO relationships
             (id, organisation_id, from_contact_id, from_organisation_id,
-             to_contact_id, to_organisation_id, relationship_type, inverse_name,
+             to_contact_id, to_organisation_id, from_role, to_role,
              start_date, end_date, notes)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
     )
@@ -1870,8 +1873,8 @@ async fn insert_relationship(
     .bind(from_org)
     .bind(to_contact)
     .bind(to_org)
-    .bind(relationship_type)
-    .bind(optional(row, "inverse_name"))
+    .bind(from_role)
+    .bind(to_role)
     .bind(date(row, "start_date"))
     .bind(date(row, "end_date"))
     .bind(optional(row, "notes"))

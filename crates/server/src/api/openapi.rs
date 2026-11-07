@@ -21,6 +21,10 @@ use utoipa::{Modify, OpenApi};
         crate::api::auth::refresh,
         crate::api::auth::logout,
         crate::api::auth::me,
+        crate::api::relationships::list,
+        crate::api::relationships::graph,
+        crate::api::relationships::create,
+        crate::api::relationships::delete,
     ),
     components(schemas(
         crate::error::ErrorBody,
@@ -36,10 +40,17 @@ use utoipa::{Modify, OpenApi};
         crate::api::auth::UserProfile,
         crate::api::auth::OrganisationProfile,
         crate::auth::role::Role,
+        crate::relationships::PartyKind,
+        crate::relationships::RelationshipEdge,
+        crate::relationships::GraphNode,
+        crate::relationships::RelationshipGraph,
+        crate::api::relationships::RelationshipList,
+        crate::api::relationships::RelationshipWrite,
     )),
     tags(
         (name = "system", description = "Liveness and readiness probes"),
-        (name = "auth", description = "Authentication, sessions and identity")
+        (name = "auth", description = "Authentication, sessions and identity"),
+        (name = "relationships", description = "Two-sided links between people and organisations")
     ),
     modifiers(&SecurityAddon)
 )]

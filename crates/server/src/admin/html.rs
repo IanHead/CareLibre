@@ -76,6 +76,9 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         }
 
         let mut data = String::new();
+        if capabilities.contains(crate::permissions::Capability::RelationshipsRead) {
+            data.push_str(&nav_item("/admin/relationships", "Relationships", active));
+        }
         if capabilities.contains(crate::permissions::Capability::DataImport) {
             data.push_str(&nav_item("/admin/import", "Import", active));
         }
@@ -284,6 +287,16 @@ tbody tr:hover { background: var(--bg); }
 .erd-edge { stroke: var(--muted); fill: none; stroke-width: 1.3; opacity: .6; }
 .erd-pk { fill: var(--accent); }
 .erd-fk { fill: var(--warn); }
+.network { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px; overflow: auto; }
+.network svg { display: block; }
+.network-node.contact { fill: var(--accent); }
+.network-node.organisation { fill: var(--warn); }
+.network-node.focus { stroke: var(--text); stroke-width: 3; }
+.network-edge { stroke: var(--muted); stroke-width: .45; opacity: .07; }
+.network-edge.near { stroke-width: 1.1; opacity: .35; }
+.network-label { fill: var(--text); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.network-label.small { font-size: 9px; fill: var(--muted); }
+.network-role { fill: var(--text); font-size: 9px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
 .schema-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
 .schema-card h3 { font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--text); font-family: ui-monospace, monospace; }
 .schema-card table { border: 0; background: transparent; }

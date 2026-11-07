@@ -69,6 +69,25 @@ curl -sX POST http://127.0.0.1:8484/api/v1/auth/refresh \
   -d '{"refresh_token":"..."}'
 ```
 
+## Relationships and the graph
+
+Relationships are **two-sided**: one row stores the role of each endpoint. Fetch
+them with either endpoint id, or ask for a graph slice:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/relationships?contact_id=…` | Links touching a contact, with both roles |
+| `GET /api/v1/relationships?organisation_id=…` | Links touching an organisation |
+| `GET /api/v1/relationships/graph` | Whole-tenant nodes and edges |
+| `GET /api/v1/relationships/graph?focus_kind=contact&focus_id=…&depth=2` | Ego network |
+| `POST /api/v1/relationships` | Create a link (`relationships.write`) |
+| `DELETE /api/v1/relationships/{id}` | Remove a link (`relationships.write`) |
+
+Each edge returns `from_role` and `to_role`; render the same edge from either
+side without a second record. For example a GP link is stored once as
+`general_practitioner` → `patient`, and the graph can label the patient end as
+`patient` and the clinic end as `general_practitioner`.
+
 ## Errors
 
 Every non-2xx response has the same shape:

@@ -166,6 +166,13 @@ pub async fn dashboard(State(state): State<AppState>, session: AdminSession) -> 
             "/admin/custom-fields",
         ));
     }
+    if session.can(Capability::RelationshipsRead) {
+        body.push_str(&link_card(
+            "Relationship network",
+            "Two-sided connections between people and organisations.",
+            "/admin/relationships",
+        ));
+    }
     if session.can(Capability::SchemaView) {
         body.push_str(&link_card(
             "Database explorer",

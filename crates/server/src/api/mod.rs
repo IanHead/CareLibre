@@ -4,6 +4,7 @@ pub mod auth;
 pub mod contacts;
 pub mod health;
 pub mod openapi;
+pub mod relationships;
 pub mod status;
 
 use axum::{
@@ -45,6 +46,15 @@ fn v1_routes() -> Router<AppState> {
         .route("/me", get(auth::me))
         .route("/contacts", get(contacts::list).post(contacts::create))
         .route("/contacts/{id}", get(contacts::get).patch(contacts::update))
+        .route(
+            "/relationships",
+            get(relationships::list).post(relationships::create),
+        )
+        .route("/relationships/graph", get(relationships::graph))
+        .route(
+            "/relationships/{id}",
+            axum::routing::delete(relationships::delete),
+        )
         .route("/custom-fields", get(contacts::list_custom_fields))
 }
 
