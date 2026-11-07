@@ -94,3 +94,24 @@ async fn unknown_routes_404() {
     let response = get("/api/v1/does-not-exist").await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn root_serves_the_status_page() {
+    let response = get("/").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+
+    assert!(html.contains("CareLibre"));
+    assert!(html.contains("Connect a client"));
+    assert!(html.contains("/api/v1"));
+    assert!(html.contains("/api-docs/openapi.json"));
+}

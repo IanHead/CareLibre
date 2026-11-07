@@ -1,6 +1,6 @@
 //! Shared application state handed to every handler.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use sqlx::PgPool;
 
@@ -10,6 +10,8 @@ use crate::config::Config;
 pub struct AppState {
     pub db: PgPool,
     pub config: Arc<Config>,
+    /// Process start time, used by the status page.
+    pub started_at: Instant,
 }
 
 impl AppState {
@@ -18,6 +20,7 @@ impl AppState {
         Self {
             db,
             config: Arc::new(config),
+            started_at: Instant::now(),
         }
     }
 }

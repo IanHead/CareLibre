@@ -35,7 +35,8 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- API: <http://localhost:8484>
+- Status page: <http://localhost:8484/>
+- API: <http://localhost:8484/api/v1>
 - Swagger UI: <http://localhost:8484/docs>
 - OpenAPI JSON: <http://localhost:8484/api-docs/openapi.json>
 - Health: `GET /healthz`, `GET /readyz`

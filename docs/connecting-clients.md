@@ -23,6 +23,7 @@ contract; a future breaking change becomes `/api/v2`.
 
 | Endpoint | Returns |
 |---|---|
+| `GET /` | human-readable status page with live database check and connection guide |
 | `GET /healthz` | process liveness |
 | `GET /readyz` | readiness, including database connectivity |
 | `GET /api-docs/openapi.json` | OpenAPI 3 document — generate client bindings from this |

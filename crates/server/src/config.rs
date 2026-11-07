@@ -17,6 +17,14 @@ impl Environment {
     pub const fn is_production(self) -> bool {
         matches!(self, Self::Production)
     }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Development => "development",
+            Self::Production => "production",
+        }
+    }
 }
 
 /// Fully resolved server configuration.

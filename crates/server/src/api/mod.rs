@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod health;
 pub mod openapi;
+pub mod status;
 
 use axum::{
     http::{header, HeaderValue, Method},
@@ -18,6 +19,7 @@ pub fn router(state: AppState) -> Router {
     let cors = cors_layer(&state.config);
 
     let app = Router::new()
+        .route("/", get(status::index))
         .route("/healthz", get(health::liveness))
         .route("/readyz", get(health::readiness))
         .nest("/api/v1", v1_routes())
