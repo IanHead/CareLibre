@@ -92,6 +92,20 @@ async fn relationships_require_authentication() {
 }
 
 #[tokio::test]
+async fn rostering_requires_authentication() {
+    for uri in [
+        "/api/v1/sites",
+        "/api/v1/shifts",
+        "/api/v1/shifts/00000000-0000-0000-0000-000000000000",
+        "/api/v1/shifts/00000000-0000-0000-0000-000000000000/suitability",
+        "/api/v1/roster-constraints",
+    ] {
+        let response = get(uri).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
+    }
+}
+
+#[tokio::test]
 async fn admin_network_requires_authentication() {
     let response = get("/admin/relationships").await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -108,6 +122,9 @@ async fn openapi_document_is_served() {
     assert!(json["paths"]["/api/v1/auth/login"].is_object());
     assert!(json["paths"]["/api/v1/relationships"].is_object());
     assert!(json["paths"]["/api/v1/relationships/graph"].is_object());
+    assert!(json["paths"]["/api/v1/shifts"].is_object());
+    assert!(json["paths"]["/api/v1/shifts/{id}/suitability"].is_object());
+    assert!(json["paths"]["/api/v1/roster-constraints"].is_object());
 }
 
 #[tokio::test]

@@ -1077,3 +1077,134 @@ async fn invitations_are_single_use_and_tenant_scoped() {
 
     tx.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn roster_constraints_are_validated_and_tenant_scoped() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let organisation = create_organisation(&mut tx).await;
+    let other_organisation = create_organisation(&mut tx).await;
+    let worker = create_contact(&mut tx, organisation).await;
+    let target = create_contact(&mut tx, organisation).await;
+    let foreign = create_contact(&mut tx, other_organisation).await;
+
+    sqlx::query("SAVEPOINT worker_self_constraint")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let self_constraint = sqlx::query(
+        "INSERT INTO roster_constraints
+            (id, organisation_id, worker_contact_id, target_contact_id, kind)
+         VALUES ($1, $2, $3, $3, 'blocked')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(worker)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        self_constraint.is_err(),
+        "a worker cannot constrain themselves"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT worker_self_constraint")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    sqlx::query("SAVEPOINT cross_tenant_target")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let cross_tenant = sqlx::query(
+        "INSERT INTO roster_constraints
+            (id, organisation_id, worker_contact_id, target_contact_id, kind)
+         VALUES ($1, $2, $3, $4, 'blocked')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(worker)
+    .bind(foreign)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        cross_tenant.is_err(),
+        "constraint targets must belong to the same tenant"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT cross_tenant_target")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO roster_constraints
+            (id, organisation_id, worker_contact_id, target_contact_id, kind, strength)
+         VALUES ($1, $2, $3, $4, 'blocked', 5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(worker)
+    .bind(target)
+    .execute(&mut *tx)
+    .await
+    .expect("valid worker-to-worker constraint");
+
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn worker_client_history_aggregates_assignment_outcomes() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let organisation = create_organisation(&mut tx).await;
+    let worker = create_contact(&mut tx, organisation).await;
+    let client = create_contact(&mut tx, organisation).await;
+    let shift = create_shift(&mut tx, organisation, None).await;
+
+    sqlx::query(
+        "INSERT INTO client_assignments
+            (id, organisation_id, shift_id, contact_id, status)
+         VALUES ($1, $2, $3, $4, 'attended')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(shift)
+    .bind(client)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO worker_assignments
+            (id, organisation_id, shift_id, contact_id, status, outcome, outcome_rating)
+         VALUES ($1, $2, $3, $4, 'attended', 'positive', 5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(shift)
+    .bind(worker)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    let (attended, rating, positive): (i64, Option<f64>, i64) = sqlx::query_as(
+        "SELECT attended_shifts, average_rating, positive_outcomes
+         FROM worker_client_history
+         WHERE organisation_id=$1 AND worker_contact_id=$2 AND client_contact_id=$3",
+    )
+    .bind(organisation)
+    .bind(worker)
+    .bind(client)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("history row");
+
+    assert_eq!(attended, 1);
+    assert_eq!(rating, Some(5.0));
+    assert_eq!(positive, 1);
+
+    tx.rollback().await.unwrap();
+}

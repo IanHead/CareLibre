@@ -43,11 +43,14 @@ slices: each phase ships schema, API, tests and docs together.
 
 ## Phase 3 — Rostering
 
-- **Shifts** — client/worker assignments, sessions, open-hours blocks
-- **Client assignments**, **worker assignments**, **sessions**
-- Copy/paste shifts across days/weeks/workers
+- **Shifts** — client/worker assignments, sessions, open-hours blocks ✅
+- **Sites, services and shift context** ✅
+- **Roster constraints** — preferred, avoid and hard blocked links ✅
+- **Assignment outcomes and ratings** ✅
+- **Explainable worker suitability endpoint** ✅
 - Conflict detection, travel time, availability
-- Social graph for worker ↔ client matching
+- Copy/paste shifts across days/weeks/workers
+- Social graph / learned ranking for worker ↔ client matching
 
 ## Phase 4 — Money and integrations
 

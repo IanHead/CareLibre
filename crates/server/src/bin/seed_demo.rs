@@ -225,6 +225,7 @@ async fn main() -> anyhow::Result<()> {
     let sets = load_personas(&mut tx, organisation).await?;
     create_users(&mut tx, organisation, &sets).await?;
     let divisions = insert_divisions(&mut tx, organisation).await?;
+    let sites = insert_sites(&mut tx, organisation, &divisions).await?;
     let cost_centres = insert_cost_centres(&mut tx, organisation, &divisions).await?;
     let services = insert_services(&mut tx, organisation, &divisions, &mut rng).await?;
     let custom_fields = insert_custom_fields(&mut tx, organisation).await?;
@@ -236,12 +237,17 @@ async fn main() -> anyhow::Result<()> {
     insert_rosters(
         &mut tx,
         organisation,
-        &clients,
-        &staff,
-        &divisions,
+        RosterData {
+            clients: &clients,
+            staff: &staff,
+            divisions: &divisions,
+            services: &services,
+            sites: &sites,
+        },
         &mut rng,
     )
     .await?;
+    insert_roster_constraints(&mut tx, organisation, &clients, &staff, &services, &sites).await?;
 
     insert_audit(&mut tx, organisation, clients.len(), staff.len()).await?;
 
@@ -262,6 +268,16 @@ async fn main() -> anyhow::Result<()> {
             .bind(organisation)
             .fetch_one(&pool)
             .await?;
+    let site_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM sites WHERE organisation_id = $1")
+            .bind(organisation)
+            .fetch_one(&pool)
+            .await?;
+    let constraint_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM roster_constraints WHERE organisation_id = $1")
+            .bind(organisation)
+            .fetch_one(&pool)
+            .await?;
 
     println!("Blue Dreams Care seeded");
     println!("  organisation: {organisation} ({SLUG})");
@@ -270,6 +286,8 @@ async fn main() -> anyhow::Result<()> {
     println!("  contacts:     {contact_count}");
     println!("  relationships:{relationship_count}");
     println!("  shifts:       {shift_count}");
+    println!("  sites:        {site_count}");
+    println!("  constraints:  {constraint_count}");
     println!("  divisions:    {}", divisions.len());
     println!("  cost centres: {}", cost_centres.len());
     println!("  services:     {}", services.len());
@@ -452,6 +470,37 @@ async fn insert_divisions(
         .bind(organisation)
         .bind(name)
         .bind(code)
+        .execute(&mut **tx)
+        .await?;
+        ids.push(id);
+    }
+    Ok(ids)
+}
+
+async fn insert_sites(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    divisions: &[Uuid],
+) -> anyhow::Result<Vec<Uuid>> {
+    let names = [
+        ("Blue Dreams Day Program", 0usize),
+        ("North Respite House", 0),
+        ("South Community Hub", 1),
+        ("East Office", 2),
+    ];
+
+    let mut ids = Vec::new();
+    for (name, division_index) in names {
+        let id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO sites (id, organisation_id, division_id, name, address)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(id)
+        .bind(organisation)
+        .bind(divisions.get(division_index).copied())
+        .bind(name)
+        .bind(format!("{} demo site", SUBURBS[ids.len() % SUBURBS.len()]))
         .execute(&mut **tx)
         .await?;
         ids.push(id);
@@ -1017,20 +1066,35 @@ async fn insert_client_networks(
     Ok(())
 }
 
+struct RosterData<'a> {
+    clients: &'a [Uuid],
+    staff: &'a [Uuid],
+    divisions: &'a [Uuid],
+    services: &'a [Uuid],
+    sites: &'a [Uuid],
+}
+
 async fn insert_rosters(
     tx: &mut Transaction<'_, Postgres>,
     organisation: Uuid,
-    clients: &[Uuid],
-    staff: &[Uuid],
-    divisions: &[Uuid],
+    data: RosterData<'_>,
     _rng: &mut StdRng,
 ) -> anyhow::Result<()> {
-    let start = Utc::now().date_naive();
+    let RosterData {
+        clients,
+        staff,
+        divisions,
+        services,
+        sites,
+    } = data;
+    let today = Utc::now().date_naive();
+    let start = today - Duration::days(7);
     let slots: [(u32, u32); 4] = [(7, 9), (9, 12), (13, 15), (15, 18)];
     let mut shift_index = 0usize;
 
     for day in 0..14 {
         let date = start + Duration::days(day);
+        let past = date < today;
         for slot in 0..30 {
             let (start_hour, end_hour) = slots[slot % slots.len()];
             let Some(starts_at) = utc_at(date, start_hour) else {
@@ -1042,17 +1106,23 @@ async fn insert_rosters(
 
             let client = clients[(day as usize * 37 + slot * 7) % clients.len()];
             let worker = staff[(day as usize * 23 + slot * 11) % staff.len()];
+            let service = services[shift_index % services.len()];
+            let site = sites[shift_index % sites.len()];
+            let shift_status = if past { "completed" } else { "published" };
+            let assignment_status = if past { "attended" } else { "assigned" };
 
             let shift_id = Uuid::now_v7();
             sqlx::query(
                 "INSERT INTO shifts
-                    (id, organisation_id, division_id, title, kind, starts_at, ends_at,
-                     location, status)
-                 VALUES ($1, $2, $3, $4, 'service_delivery', $5, $6, $7, 'published')",
+                    (id, organisation_id, division_id, service_id, site_id, title, kind,
+                     starts_at, ends_at, location, status)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'service_delivery', $7, $8, $9, $10)",
             )
             .bind(shift_id)
             .bind(organisation)
             .bind(divisions[shift_index % divisions.len()])
+            .bind(service)
+            .bind(site)
             .bind(SERVICES[shift_index % SERVICES.len()].0)
             .bind(starts_at)
             .bind(ends_at)
@@ -1060,6 +1130,7 @@ async fn insert_rosters(
                 "Client home, {}",
                 SUBURBS[shift_index % SUBURBS.len()]
             ))
+            .bind(shift_status)
             .execute(&mut **tx)
             .await?;
 
@@ -1091,31 +1162,182 @@ async fn insert_rosters(
             sqlx::query(
                 "INSERT INTO client_assignments
                     (id, organisation_id, shift_id, session_id, contact_id, status)
-                 VALUES ($1, $2, $3, $4, $5, 'assigned')",
+                 VALUES ($1, $2, $3, $4, $5, $6)",
             )
             .bind(Uuid::now_v7())
             .bind(organisation)
             .bind(shift_id)
             .bind(session_id)
             .bind(client)
+            .bind(assignment_status)
             .execute(&mut **tx)
             .await?;
 
+            let (outcome, rating): (Option<&str>, Option<i16>) = if past {
+                if shift_index % 17 == 0 {
+                    (Some("negative"), Some(2))
+                } else if shift_index % 5 == 0 {
+                    (Some("neutral"), Some(3))
+                } else {
+                    (
+                        Some("positive"),
+                        Some(if shift_index % 3 == 0 { 5 } else { 4 }),
+                    )
+                }
+            } else {
+                (None, None)
+            };
+
             sqlx::query(
                 "INSERT INTO worker_assignments
-                    (id, organisation_id, shift_id, session_id, contact_id, status)
-                 VALUES ($1, $2, $3, $4, $5, 'assigned')",
+                    (id, organisation_id, shift_id, session_id, contact_id, status,
+                     outcome, outcome_rating)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             )
             .bind(Uuid::now_v7())
             .bind(organisation)
             .bind(shift_id)
             .bind(session_id)
             .bind(worker)
+            .bind(assignment_status)
+            .bind(outcome)
+            .bind(rating)
             .execute(&mut **tx)
             .await?;
 
+            // Some group shifts have a second worker, which creates
+            // worker-to-worker history for suitability.
+            if shift_index % 10 == 0 {
+                let second = staff[(shift_index * 13 + 7) % staff.len()];
+                if second != worker {
+                    sqlx::query(
+                        "INSERT INTO worker_assignments
+                            (id, organisation_id, shift_id, session_id, contact_id, status,
+                             outcome, outcome_rating)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                    )
+                    .bind(Uuid::now_v7())
+                    .bind(organisation)
+                    .bind(shift_id)
+                    .bind(session_id)
+                    .bind(second)
+                    .bind(assignment_status)
+                    .bind(outcome)
+                    .bind(rating)
+                    .execute(&mut **tx)
+                    .await?;
+                }
+            }
+
             shift_index += 1;
         }
+    }
+
+    Ok(())
+}
+
+async fn insert_roster_constraints(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    clients: &[Uuid],
+    staff: &[Uuid],
+    services: &[Uuid],
+    sites: &[Uuid],
+) -> anyhow::Result<()> {
+    if clients.len() < 2 || staff.len() < 4 || services.is_empty() || sites.is_empty() {
+        return Ok(());
+    }
+
+    struct ConstraintSeed {
+        worker: Uuid,
+        target_contact: Option<Uuid>,
+        target_site: Option<Uuid>,
+        target_service: Option<Uuid>,
+        target_division: Option<Uuid>,
+        kind: &'static str,
+        strength: i16,
+        reason: &'static str,
+        source: &'static str,
+    }
+
+    let rows = [
+        ConstraintSeed {
+            worker: staff[0],
+            target_contact: Some(clients[0]),
+            target_site: None,
+            target_service: None,
+            target_division: None,
+            kind: "preferred",
+            strength: 4,
+            reason: "Continuity requested by family",
+            source: "client_request",
+        },
+        ConstraintSeed {
+            worker: staff[1],
+            target_contact: Some(clients[1]),
+            target_site: None,
+            target_service: None,
+            target_division: None,
+            kind: "avoid",
+            strength: 3,
+            reason: "Client prefers a different worker",
+            source: "client_request",
+        },
+        ConstraintSeed {
+            worker: staff[2],
+            target_contact: Some(staff[3]),
+            target_site: None,
+            target_service: None,
+            target_division: None,
+            kind: "blocked",
+            strength: 5,
+            reason: "Do not roster these workers together",
+            source: "hr",
+        },
+        ConstraintSeed {
+            worker: staff[4 % staff.len()],
+            target_contact: None,
+            target_site: Some(sites[0]),
+            target_service: None,
+            target_division: None,
+            kind: "preferred",
+            strength: 2,
+            reason: "Lives close to this site",
+            source: "manual",
+        },
+        ConstraintSeed {
+            worker: staff[5 % staff.len()],
+            target_contact: None,
+            target_site: None,
+            target_service: Some(services[0]),
+            target_division: None,
+            kind: "preferred",
+            strength: 2,
+            reason: "Regular program lead",
+            source: "manual",
+        },
+    ];
+
+    for seed in rows {
+        sqlx::query(
+            "INSERT INTO roster_constraints
+                (id, organisation_id, worker_contact_id, target_contact_id, target_site_id,
+                 target_service_id, target_division_id, kind, strength, reason, source)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(organisation)
+        .bind(seed.worker)
+        .bind(seed.target_contact)
+        .bind(seed.target_site)
+        .bind(seed.target_service)
+        .bind(seed.target_division)
+        .bind(seed.kind)
+        .bind(seed.strength)
+        .bind(seed.reason)
+        .bind(seed.source)
+        .execute(&mut **tx)
+        .await?;
     }
 
     Ok(())

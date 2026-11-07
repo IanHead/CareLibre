@@ -14,6 +14,7 @@ pub mod import;
 pub mod onboarding;
 pub mod permissions;
 pub mod relationships;
+pub mod rostering;
 pub mod state;
 pub mod telemetry;
 pub mod util;

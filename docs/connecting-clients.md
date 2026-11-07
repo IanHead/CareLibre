@@ -88,6 +88,45 @@ side without a second record. For example a GP link is stored once as
 `general_practitioner` → `patient`, and the graph can label the patient end as
 `patient` and the clinic end as `general_practitioner`.
 
+## Rostering and suitability
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/sites` / `POST /api/v1/sites` | Physical sites where care happens |
+| `GET /api/v1/shifts` / `POST /api/v1/shifts` | List and create shifts with division, service and site |
+| `GET /api/v1/shifts/{id}` / `PATCH /api/v1/shifts/{id}` | Shift detail and updates |
+| `POST /api/v1/shifts/{id}/assignments` | Assign a worker or client |
+| `PATCH /api/v1/assignments/{id}` | Update status, outcome and rating |
+| `GET /api/v1/shifts/{id}/suitability` | Ranked worker candidates with reasons |
+| `GET/POST /api/v1/roster-constraints` | Explicit preferred, avoid and blocked constraints |
+
+`/suitability` returns `candidates` (ranked, with `reasons` and `warnings`) and a
+separate `blocked` list for hard exclusions. Scores are **advisory**; the server
+never auto-assigns. Example response fragment:
+
+```json
+{
+  "candidates": [
+    {
+      "contact_id": "…",
+      "display_name": "Olivia Brown",
+      "score": 82.4,
+      "reasons": ["12 attended shifts with Jane Doe", "preferred for Jane Doe"],
+      "warnings": []
+    }
+  ],
+  "blocked": [
+    {
+      "contact_id": "…",
+      "display_name": "Alex Smith",
+      "score": 0,
+      "reasons": [],
+      "warnings": ["blocked for Jane Doe: client request"]
+    }
+  ]
+}
+```
+
 ## Errors
 
 Every non-2xx response has the same shape:

@@ -135,13 +135,34 @@ health provider *is general practitioner of* a person
 
 ## Rostering
 
+- `sites` are physical places where care happens, optionally inside a division.
 - `shifts` have a kind (`service_delivery`, `opening_hours`, `respite_program`),
-  a time range, optional division and status.
+  a time range, optional division, service and site, plus status.
 - `shift_sessions` are sub-blocks of a shift and can hold their own assignments.
 - `client_assignments` and `worker_assignments` attach a contact to a shift
   **or** to a session within it. A composite foreign key proves the session
   belongs to the same shift. Partial unique indexes prevent the same contact
   being assigned twice in the same scope.
+- `worker_assignments` can carry an `outcome` (`positive`/`neutral`/`negative`)
+  and a 1–5 `outcome_rating`.
+
+## Rostering suitability
+
+Suitability is a separate layer from care relationships. See ADR 0011.
+
+- `roster_constraints` holds explicit `preferred`, `avoid` and `blocked`
+  constraints for a worker against a contact, site, service or division.
+  `blocked` is a hard exclusion; `avoid` is a penalty; `preferred` is a bonus.
+  Contact constraints are symmetric, so a worker-worker conflict applies in both
+  directions.
+- `worker_client_history`, `worker_worker_history` and
+  `worker_context_history` aggregate attended shifts, no-shows, cancellations,
+  ratings, outcomes and recency from assignments.
+- `GET /api/v1/shifts/{id}/suitability` scores candidates from those views and
+  the active constraints, returning reasons, warnings and a blocked list. Scores
+  are advisory; the endpoint never auto-assigns a worker.
+- No score is stored on `relationships`. The evidence is append-only history, so
+  recommendations can be recomputed and explained.
 
 ## Custom fields
 
@@ -171,6 +192,9 @@ ADR 0007.
 | Tenant separation | composite `(organisation_id, id)` foreign keys |
 | One cost centre per record | unique `(organisation_id, entity_type, entity_id)` |
 | Relationship endpoints are in the same tenant | composite FKs to `organisations (tenant_id, id)` |
+| Roster constraint has exactly one target | `CHECK (num_nonnulls(...) = 1)` |
+| A worker cannot constrain themselves | `CHECK (target_contact_id <> worker_contact_id)` |
+| Roster constraints are tenant-scoped | composite FKs to contacts, sites, services and divisions |
 | Custom values match their declared type and options | trigger `validate_custom_field_value` |
 | Custom field shape cannot change once values exist | trigger `guard_custom_field_definition_update` |
 

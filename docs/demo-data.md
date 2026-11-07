@@ -57,10 +57,21 @@ Organisation slug: `blue-dreams-care`.
 | Relationships | ~3,220 two-sided links: person_supported/guardian, person_supported/family, participant/support_coordinator, patient/general_practitioner, customer/pharmacy, participant/plan_manager, employee/employer |
 | Custom fields | `ndis_number`, `plan_end_date`, `risk_level` for clients; `employee_number` for staff |
 | Custom values | ~2,100 |
-| Rostering | 14 days, 420 published shifts, 84 sessions, 840 client/worker assignments |
+| Rostering | 14 days, 420 shifts (~210 completed with outcomes, ~210 published ahead), 84 sessions, 420 client + 462 worker assignments |
+| Sites | 4 (day program, respite house, community hub, office), linked to divisions |
+| Roster constraints | 5 examples: continuity preferences, client avoid, worker-worker block, site/service preference |
+| Assignment outcomes | Completed shifts carry positive/neutral/negative outcomes and 1–5 ratings |
 
 Every client has at least one relationship. Support networks combine family,
 health, coordination and plan-management links.
+
+## Roster suitability data
+
+The seeder spans two weeks: the previous seven days are completed and attended
+with outcome ratings, while the next seven days remain published and assigned.
+Some shifts carry a second worker so worker-to-worker history exists, and a
+handful of explicit constraints seed the suitability examples (preferred, avoid
+and blocked).
 
 ## Notes
 

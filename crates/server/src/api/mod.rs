@@ -5,6 +5,7 @@ pub mod contacts;
 pub mod health;
 pub mod openapi;
 pub mod relationships;
+pub mod rostering;
 pub mod status;
 
 use axum::{
@@ -54,6 +55,35 @@ fn v1_routes() -> Router<AppState> {
         .route(
             "/relationships/{id}",
             axum::routing::delete(relationships::delete),
+        )
+        .route(
+            "/sites",
+            get(rostering::list_sites).post(rostering::create_site),
+        )
+        .route(
+            "/shifts",
+            get(rostering::list_shifts).post(rostering::create_shift),
+        )
+        .route(
+            "/shifts/{id}",
+            get(rostering::get_shift).patch(rostering::update_shift),
+        )
+        .route(
+            "/shifts/{id}/assignments",
+            post(rostering::create_assignment),
+        )
+        .route("/shifts/{id}/suitability", get(rostering::suitability))
+        .route(
+            "/assignments/{id}",
+            axum::routing::patch(rostering::update_assignment).delete(rostering::delete_assignment),
+        )
+        .route(
+            "/roster-constraints",
+            get(rostering::list_constraints).post(rostering::create_constraint),
+        )
+        .route(
+            "/roster-constraints/{id}",
+            axum::routing::delete(rostering::delete_constraint),
         )
         .route("/custom-fields", get(contacts::list_custom_fields))
 }
