@@ -1,0 +1,19 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local tooling
+/docker-data/

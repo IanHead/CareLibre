@@ -1,0 +1,96 @@
+use std::time::Duration;
+
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use carelibre_server::{
+    api,
+    config::{Config, Environment},
+    state::AppState,
+};
+use http_body_util::BodyExt;
+use sqlx::postgres::PgPoolOptions;
+use tower::ServiceExt;
+
+/// Build an app whose pool is lazy: these tests never touch PostgreSQL.
+fn test_state() -> AppState {
+    let config = Config {
+        bind_addr: "127.0.0.1:0".parse().expect("valid socket address"),
+        environment: Environment::Development,
+        database_url: "postgres://carelibre:carelibre@localhost:5432/carelibre".to_owned(),
+        database_max_connections: 1,
+        run_migrations: false,
+        jwt_secret: "test-secret-that-is-at-least-32-characters-long".to_owned(),
+        access_token_ttl: Duration::from_secs(900),
+        refresh_token_ttl: Duration::from_secs(3600),
+        cors_allowed_origins: Vec::new(),
+    };
+
+    let pool = PgPoolOptions::new()
+        .connect_lazy(&config.database_url)
+        .expect("lazy pool should parse");
+
+    AppState::new(pool, config)
+}
+
+async fn get(uri: &str) -> axum::response::Response {
+    api::router(test_state())
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn liveness_is_public() {
+    let response = get("/healthz").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+}
+
+#[tokio::test]
+async fn me_requires_a_bearer_token() {
+    let response = get("/api/v1/me").await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["error"]["code"], "unauthorized");
+}
+
+#[tokio::test]
+async fn me_rejects_a_garbage_token() {
+    let response = api::router(test_state())
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/me")
+                .header("authorization", "Bearer not-a-real-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn openapi_document_is_served() {
+    let response = get("/api-docs/openapi.json").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["info"]["title"], "CareLibre API");
+    assert!(json["paths"]["/api/v1/auth/login"].is_object());
+}
+
+#[tokio::test]
+async fn unknown_routes_404() {
+    let response = get("/api/v1/does-not-exist").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
