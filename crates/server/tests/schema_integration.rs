@@ -1208,3 +1208,62 @@ async fn worker_client_history_aggregates_assignment_outcomes() {
 
     tx.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn branding_is_restricted_to_tenant_roots() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let tenant = create_organisation(&mut tx).await;
+    let partner = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO organisations (id, tenant_id, name, kind)
+         VALUES ($1, $2, 'Partner Org', 'provider')",
+    )
+    .bind(partner)
+    .bind(tenant)
+    .execute(&mut *tx)
+    .await
+    .expect("external organisation");
+
+    let png = [0x89u8, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    let sha = "a".repeat(64);
+
+    sqlx::query("SAVEPOINT partner_branding")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let partner_insert = sqlx::query(
+        "INSERT INTO organisation_branding
+            (organisation_id, logo, logo_content_type, logo_sha256)
+         VALUES ($1, $2, 'image/png', $3)",
+    )
+    .bind(partner)
+    .bind(&png[..])
+    .bind(&sha)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        partner_insert.is_err(),
+        "counterparties cannot carry tenant branding"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT partner_branding")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO organisation_branding
+            (organisation_id, logo, logo_content_type, logo_sha256)
+         VALUES ($1, $2, 'image/png', $3)",
+    )
+    .bind(tenant)
+    .bind(&png[..])
+    .bind(&sha)
+    .execute(&mut *tx)
+    .await
+    .expect("tenant root may carry branding");
+
+    tx.rollback().await.unwrap();
+}

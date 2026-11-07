@@ -12,6 +12,7 @@ pub mod db;
 pub mod error;
 pub mod import;
 pub mod onboarding;
+pub mod organisation;
 pub mod permissions;
 pub mod relationships;
 pub mod rostering;

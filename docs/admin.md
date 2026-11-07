@@ -38,6 +38,7 @@ cookie is replayed.
 | `/admin/permission-sets` | Capabilities and the seven OOTB personas (`permission_sets.manage`) |
 | `/admin/schema` | Database explorer (see below) |
 | `/admin/custom-fields` | User-defined fields for every object (`custom_fields.manage`) |
+| `/admin/organisation` | Organisation name and client logo (`settings.manage`) |
 | `/admin/relationships` | Two-sided relationship graph, with search and per-party focus (`relationships.read`) |
 | `/admin/users/{id}/access` | Assign one or more permission sets to a user |
 | `/admin/invitations` | Create, inspect and revoke one-time invitation links (`users.manage`) |
@@ -49,6 +50,17 @@ Navigation is a grouped left sidebar — **Home**, **Access**, **Data** and
 **System** — with a filter box at the top. Groups and items are capability-gated,
 so each account sees only what it can use. On narrow screens the sidebar becomes
 a stacked header and the filter still applies.
+
+## Organisation settings
+
+`/admin/organisation` sets the name and logo clients display.
+
+- The name is the tenant display name, also returned by the API.
+- The logo is a PNG, JPEG, WebP or GIF up to 2 MB. It is stored in PostgreSQL,
+  served with a SHA-256 ETag, and can be removed.
+- The slug and edition are shown read-only; changing the slug would break API
+  URLs and is deliberately not part of this form.
+- Changes are audited and available to clients immediately.
 
 ## Relationship network
 

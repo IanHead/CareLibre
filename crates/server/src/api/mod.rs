@@ -4,11 +4,13 @@ pub mod auth;
 pub mod contacts;
 pub mod health;
 pub mod openapi;
+pub mod organisation;
 pub mod relationships;
 pub mod rostering;
 pub mod status;
 
 use axum::{
+    extract::DefaultBodyLimit,
     http::{header, HeaderValue, Method},
     routing::{get, post},
     Router,
@@ -45,6 +47,19 @@ fn v1_routes() -> Router<AppState> {
         .route("/auth/refresh", post(auth::refresh))
         .route("/auth/logout", post(auth::logout))
         .route("/me", get(auth::me))
+        .route(
+            "/organisation",
+            get(organisation::get_profile).patch(organisation::update_profile),
+        )
+        .route(
+            "/organisation/logo",
+            get(organisation::get_logo)
+                .put(organisation::upload_logo)
+                .delete(organisation::delete_logo_handler)
+                .layer(DefaultBodyLimit::max(
+                    crate::organisation::MAX_LOGO_BYTES + 64 * 1024,
+                )),
+        )
         .route("/contacts", get(contacts::list).post(contacts::create))
         .route("/contacts/{id}", get(contacts::get).patch(contacts::update))
         .route(

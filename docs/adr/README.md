@@ -15,6 +15,7 @@ Short, dated records of decisions that are expensive to reverse.
 | [0009](0009-invitation-links.md) | One-time invitation links | Accepted |
 | [0010](0010-csv-import.md) | CSV import with published templates and specs | Accepted |
 | [0011](0011-rostering-suitability-graph.md) | Rostering suitability as declared constraints plus derived history | Accepted |
+| [0012](0012-organisation-branding.md) | Organisation branding stored in PostgreSQL | Accepted |
 
 ## Adding an ADR
 

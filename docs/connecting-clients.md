@@ -88,6 +88,35 @@ side without a second record. For example a GP link is stored once as
 `general_practitioner` → `patient`, and the graph can label the patient end as
 `patient` and the clinic end as `general_practitioner`.
 
+## Organisation profile and logo
+
+After sign-in, fetch the tenant profile and, if present, its logo:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/organisation` | `{id, slug, name, edition, logo}` |
+| `PATCH /api/v1/organisation` | Update `name` (`settings.manage`) |
+| `GET /api/v1/organisation/logo` | Logo bytes with the correct content type |
+| `PUT /api/v1/organisation/logo` | Multipart field `logo`; PNG/JPEG/WebP/GIF up to 2 MB (`settings.manage`) |
+| `DELETE /api/v1/organisation/logo` | Remove the logo (`settings.manage`) |
+
+`logo` in the profile is `null` or:
+
+```json
+{
+  "content_type": "image/png",
+  "filename": "carelibre.png",
+  "sha256": "…",
+  "updated_at": "2026-11-07T10:00:00Z",
+  "url": "/api/v1/organisation/logo"
+}
+```
+
+Send the bearer token when fetching the logo. The response includes an `ETag`
+derived from `sha256`; send it back as `If-None-Match` to get `304 Not Modified`
+and avoid re-downloading an unchanged logo. Clients should fall back to the
+organisation name (or a neutral wordmark) when `logo` is `null`.
+
 ## Rostering and suitability
 
 | Endpoint | Purpose |

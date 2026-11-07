@@ -23,6 +23,7 @@ slices: each phase ships schema, API, tests and docs together.
 - Request IDs and structured audit for every mutation
 - Onboarding checklist and dashboard (done)
 - One-time invitation links and CSV import with templates (both done)
+- Organisation name, logo and client branding (done)
 - PostgreSQL row-level security across tenants
 - Metrics endpoint (Prometheus)
 

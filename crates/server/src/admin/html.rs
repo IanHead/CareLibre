@@ -92,6 +92,9 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         }
 
         out.push_str("<div class=\"nav-group\"><h2>System</h2>");
+        if capabilities.contains(crate::permissions::Capability::SettingsManage) {
+            out.push_str(&nav_item("/admin/organisation", "Organisation", active));
+        }
         if capabilities.contains(crate::permissions::Capability::SchemaView) {
             out.push_str(&nav_item("/admin/schema", "Database", active));
         }

@@ -14,6 +14,7 @@ pub mod import_ui;
 pub mod invitations;
 pub mod network;
 pub mod onboarding;
+pub mod organisation;
 pub mod pages;
 pub mod permission_sets;
 pub mod schema;
@@ -33,6 +34,19 @@ pub fn router() -> Router<AppState> {
         .route("/logout", post(auth::logout))
         .route("/users", get(pages::users))
         .route("/sessions", get(pages::sessions))
+        .route(
+            "/organisation",
+            get(organisation::page).post(organisation::update_name),
+        )
+        .route(
+            "/organisation/logo",
+            get(organisation::logo)
+                .post(organisation::upload_logo)
+                .layer(DefaultBodyLimit::max(
+                    crate::organisation::MAX_LOGO_BYTES + 64 * 1024,
+                )),
+        )
+        .route("/organisation/logo/delete", post(organisation::delete_logo))
         .route("/relationships", get(network::page))
         .route("/schema", get(schema::page))
         .route(

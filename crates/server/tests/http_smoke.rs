@@ -92,6 +92,20 @@ async fn relationships_require_authentication() {
 }
 
 #[tokio::test]
+async fn organisation_branding_requires_authentication() {
+    for uri in ["/api/v1/organisation", "/api/v1/organisation/logo"] {
+        let response = get(uri).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn admin_organisation_requires_authentication() {
+    let response = get("/admin/organisation").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
 async fn rostering_requires_authentication() {
     for uri in [
         "/api/v1/sites",
@@ -125,6 +139,8 @@ async fn openapi_document_is_served() {
     assert!(json["paths"]["/api/v1/shifts"].is_object());
     assert!(json["paths"]["/api/v1/shifts/{id}/suitability"].is_object());
     assert!(json["paths"]["/api/v1/roster-constraints"].is_object());
+    assert!(json["paths"]["/api/v1/organisation"].is_object());
+    assert!(json["paths"]["/api/v1/organisation/logo"].is_object());
 }
 
 #[tokio::test]

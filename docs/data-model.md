@@ -120,6 +120,16 @@ contact *is guardian of* another contact (`guardian`/`person supported`), and a
 health provider *is general practitioner of* a person
 (`general_practitioner`/`patient`).
 
+## Organisations and branding
+
+- `organisations` holds every organisation. The tenant root is `tenant_id = id`
+  and carries the display name and slug.
+- `organisation_branding` holds one optional logo per tenant root: bytes,
+  content type, filename, SHA-256 ETag and the user who last changed it.
+  Counterparties cannot carry branding; a trigger enforces tenant-root scope.
+- The logo is capped at 2 MB and restricted to PNG, JPEG, WebP or GIF, detected
+  from magic bytes. SVG is rejected. See ADR 0012.
+
 ## Divisions, services, rates
 
 - `divisions` are hierarchical organisational units inside a tenant.

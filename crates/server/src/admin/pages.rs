@@ -173,6 +173,13 @@ pub async fn dashboard(State(state): State<AppState>, session: AdminSession) -> 
             "/admin/relationships",
         ));
     }
+    if session.can(Capability::SettingsManage) {
+        body.push_str(&link_card(
+            "Organisation",
+            "Name and logo used by the desktop and mobile clients.",
+            "/admin/organisation",
+        ));
+    }
     if session.can(Capability::SchemaView) {
         body.push_str(&link_card(
             "Database explorer",
