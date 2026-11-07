@@ -65,6 +65,9 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         if capabilities.contains(crate::permissions::Capability::CustomFieldsManage) {
             out.push_str(&nav_item("/admin/custom-fields", "Custom fields", active));
         }
+        if capabilities.contains(crate::permissions::Capability::DataImport) {
+            out.push_str(&nav_item("/admin/import", "Import", active));
+        }
         if capabilities.contains(crate::permissions::Capability::SchemaView) {
             out.push_str(&nav_item("/admin/schema", "Database", active));
         }

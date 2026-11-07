@@ -134,6 +134,8 @@ docs/           architecture, ADRs, admin, roadmap
   assignment (see [`docs/permissions.md`](docs/permissions.md))
 - one-time invitation links carrying permission sets (see
   [`docs/invitations.md`](docs/invitations.md))
+- CSV import with templates, dry-run validation and all-or-nothing commit
+  (see [`docs/import.md`](docs/import.md))
 
 See [`docs/admin.md`](docs/admin.md) for access rules and security notes.
 The planned first-run experience is described in

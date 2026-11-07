@@ -280,7 +280,7 @@ half-linked relationships.
 |---|---|---|
 | Contact/division/service/rate CRUD screens or API | most auto tasks | **not built** |
 | Invitation links | `access.second_admin`, `access.team` | **built** ([invitations.md](invitations.md)) |
-| CSV import + templates | migration mode, `people.import` | **designed, not built** ([import.md](import.md)) |
+| CSV import + templates | migration mode, `people.import` | **built (v1)** ([import.md](import.md)) |
 | Configurable permission sets | `access.roles`, scoped personas | **Phase 1 built** ([permissions.md](permissions.md)) |
 | Restore verification guide | `security.backups` | docs only |
 | Accounting/SMS integrations | stage 7 | **not built** |

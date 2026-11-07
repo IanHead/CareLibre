@@ -10,6 +10,7 @@ pub mod config;
 pub mod custom_fields;
 pub mod db;
 pub mod error;
+pub mod import;
 pub mod permissions;
 pub mod state;
 pub mod telemetry;

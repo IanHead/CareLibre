@@ -7,6 +7,27 @@ spreadsheets, and it keeps the server free of third-party connector credentials.
 Connectors (Xero, QuickBooks, legacy CRM APIs) can reuse the same validation and
 commit pipeline later.
 
+## Implementation status (v1)
+
+Built:
+
+- templates and column specs for all eight objects, downloadable from
+  `/admin/import`;
+- upload, dry-run validation and row-level error CSV;
+- staged review then all-or-nothing commit;
+- `external_id` keys with per-tenant uniqueness;
+- create-only and update-by-external-id policies;
+- capability gate `data.import`, CSRF on mutations, audit entries;
+- 10,000-row / 20 MB caps and seven-day staging expiry.
+
+Not built yet:
+
+- custom-field columns (`cf_<key>`) and shifts/assignments;
+- partial-success imports and background processing;
+- scheduled cleanup job for expired staged rows (rows expire logically but are
+  not yet purged automatically);
+- direct connectors.
+
 ## Principles
 
 1. **The template is the contract.** If a column is not in the published spec,

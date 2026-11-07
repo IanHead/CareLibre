@@ -10,12 +10,14 @@ pub mod csrf;
 pub mod custom_fields;
 pub mod erd;
 pub mod html;
+pub mod import_ui;
 pub mod invitations;
 pub mod pages;
 pub mod permission_sets;
 pub mod schema;
 
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, post},
     Router,
 };
@@ -63,4 +65,18 @@ pub fn router() -> Router<AppState> {
         )
         .route("/invitations/new", get(invitations::new_form))
         .route("/invitations/{id}/revoke", post(invitations::revoke))
+        .route("/import", get(import_ui::list))
+        .route("/import/templates/{object}", get(import_ui::template))
+        .route("/import/spec/{object}", get(import_ui::spec))
+        .route(
+            "/import/upload/{object}",
+            post(import_ui::upload).layer(DefaultBodyLimit::max(crate::import::MAX_FILE_BYTES)),
+        )
+        .route("/import/batch/{batch_id}", get(import_ui::review))
+        .route("/import/batch/{batch_id}/commit", post(import_ui::commit))
+        .route("/import/batch/{batch_id}/cancel", post(import_ui::cancel))
+        .route(
+            "/import/batch/{batch_id}/errors.csv",
+            get(import_ui::errors_csv),
+        )
 }
