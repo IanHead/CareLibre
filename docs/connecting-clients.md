@@ -6,8 +6,8 @@ Everything a desktop, Android or iOS client needs to talk to the server.
 
 | Deployment | Base URL |
 |---|---|
-| Local development | `http://127.0.0.1:8080` |
-| Another machine on the LAN | `http://<server-lan-ip>:8080` |
+| Local development | `http://127.0.0.1:8484` |
+| Another machine on the LAN | `http://<server-lan-ip>:8484` |
 | Production | `https://<your-domain>` (TLS terminated by a reverse proxy) |
 
 All application endpoints live under **`/api/v1`**. The prefix is part of the
@@ -15,7 +15,7 @@ contract; a future breaking change becomes `/api/v2`.
 
 | Port | Purpose |
 |---|---|
-| `8080` | HTTP API (configurable via `BIND_ADDR`) |
+| `8484` | HTTP API (configurable via `BIND_ADDR`) |
 | `5432` | PostgreSQL in the compose stack — **do not expose to clients** |
 | `55432` | PostgreSQL for the local bundled development cluster |
 
@@ -53,17 +53,17 @@ Persist the refresh token, not the access token. Never log either.
 
 ```sh
 # Login
-curl -sX POST http://127.0.0.1:8080/api/v1/auth/login \
+curl -sX POST http://127.0.0.1:8484/api/v1/auth/login \
   -H 'content-type: application/json' \
   -d '{"email":"jane@example.com","password":"correct horse battery staple",
        "organisation_slug":"example-care"}'
 
 # Authenticated call
-curl -s http://127.0.0.1:8080/api/v1/me \
+curl -s http://127.0.0.1:8484/api/v1/me \
   -H "authorization: Bearer $ACCESS_TOKEN"
 
 # Refresh (old refresh token is invalidated)
-curl -sX POST http://127.0.0.1:8080/api/v1/auth/refresh \
+curl -sX POST http://127.0.0.1:8484/api/v1/auth/refresh \
   -H 'content-type: application/json' \
   -d '{"refresh_token":"..."}'
 ```

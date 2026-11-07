@@ -35,9 +35,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- API: <http://localhost:8080>
-- Swagger UI: <http://localhost:8080/docs>
-- OpenAPI JSON: <http://localhost:8080/api-docs/openapi.json>
+- API: <http://localhost:8484>
+- Swagger UI: <http://localhost:8484/docs>
+- OpenAPI JSON: <http://localhost:8484/api-docs/openapi.json>
 - Health: `GET /healthz`, `GET /readyz`
 
 Migrations run automatically at startup (`RUN_MIGRATIONS=true`).
@@ -59,7 +59,7 @@ All configuration is via environment variables (see `.env.example`).
 | Variable | Default | Notes |
 |---|---|---|
 | `APP_ENV` | `development` | `production` enables JSON logs and strict validation |
-| `BIND_ADDR` | `0.0.0.0:8080` | |
+| `BIND_ADDR` | `0.0.0.0:8484` | |
 | `DATABASE_URL` | — | Required |
 | `DB_MAX_CONNECTIONS` | `10` | |
 | `RUN_MIGRATIONS` | `true` | |
@@ -89,7 +89,7 @@ Every error uses one envelope:
 Example:
 
 ```sh
-curl -sX POST localhost:8080/api/v1/auth/register \
+curl -sX POST localhost:8484/api/v1/auth/register \
   -H 'content-type: application/json' \
   -d '{
     "organisation_name": "Example Care",

@@ -26,7 +26,7 @@ services:
         condition: service_healthy
     environment:
       APP_ENV: ${APP_ENV:-development}
-      BIND_ADDR: 0.0.0.0:8080
+      BIND_ADDR: 0.0.0.0:8484
       DATABASE_URL: postgres://${POSTGRES_USER:-carelibre}:${POSTGRES_PASSWORD:-carelibre}@postgres:5432/${POSTGRES_DB:-carelibre}
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-10}
       RUN_MIGRATIONS: "true"
@@ -36,9 +36,9 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       RUST_LOG: ${RUST_LOG:-info,carelibre_server=info,tower_http=info,sqlx=warn}
     ports:
-      - "${SERVER_PORT:-8080}:8080"
+      - "${SERVER_PORT:-8484}:8484"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/readyz"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8484/readyz"]
       interval: 30s
       timeout: 5s
       start_period: 10s

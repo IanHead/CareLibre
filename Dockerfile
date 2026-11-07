@@ -28,12 +28,12 @@ RUN apt-get update \
 COPY --from=builder /build/target/release/carelibre-server /usr/local/bin/carelibre-server
 
 USER 10001:10001
-EXPOSE 8080
+EXPOSE 8484
 
-ENV BIND_ADDR=0.0.0.0:8080 \
+ENV BIND_ADDR=0.0.0.0:8484 \
     APP_ENV=production
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8080/healthz || exit 1
+    CMD curl -fsS http://127.0.0.1:8484/healthz || exit 1
 
 ENTRYPOINT ["carelibre-server"]

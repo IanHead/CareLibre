@@ -50,7 +50,7 @@ impl Config {
         };
 
         let bind_addr = env::var("BIND_ADDR")
-            .unwrap_or_else(|_| "0.0.0.0:8080".to_owned())
+            .unwrap_or_else(|_| "0.0.0.0:8484".to_owned())
             .parse()
             .context("BIND_ADDR must be a valid host:port socket address")?;
 
