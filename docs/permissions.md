@@ -21,7 +21,8 @@ Phase 1 is shipped:
 
 Still outstanding:
 
-- API endpoints do not yet check capabilities (only `/me` exists);
+- contacts API endpoints check `contacts.read`/`contacts.write`; new endpoints
+  must follow the same pattern;
 - House Manager is read-only **org-wide** until scoped assignments land;
 - invitations forward the chosen sets (invitation design is agreed, not built);
 - the legacy `role` column remains for JWT/display compatibility and must not be

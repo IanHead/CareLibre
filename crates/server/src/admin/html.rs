@@ -48,6 +48,9 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         out.push_str(&nav_item("/admin", "Dashboard", active));
 
         let capabilities = who.capabilities;
+        if capabilities.contains(crate::permissions::Capability::SettingsManage) {
+            out.push_str(&nav_item("/admin/onboarding", "Setup", active));
+        }
         if capabilities.contains(crate::permissions::Capability::UsersManage) {
             out.push_str(&nav_item("/admin/users", "Users", active));
             out.push_str(&nav_item("/admin/invitations", "Invitations", active));

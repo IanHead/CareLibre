@@ -92,6 +92,29 @@ pub async fn dashboard(State(state): State<AppState>, session: AdminSession) -> 
     ));
     body.push_str("</div>");
 
+    if session.can(Capability::SettingsManage) {
+        if let Ok(summary) = crate::onboarding::summary(&state.db, session.organisation_id).await {
+            body.push_str("<h2>Setup</h2><div class=\"card\">");
+            body.push_str(&format!(
+                "<div style=\"height:8px;background:var(--border);border-radius:999px;overflow:hidden;margin-bottom:10px\">\
+                 <div style=\"height:100%;width:{}%;background:var(--ok)\"></div></div>",
+                summary.percent
+            ));
+            body.push_str(&format!(
+                "<p><strong>{} of {} required tasks</strong> complete.</p>",
+                summary.required_done, summary.required_total
+            ));
+            if let Some(next) = summary.next {
+                body.push_str(&format!(
+                    "<p class=\"sub\">Next: {} — {}</p>",
+                    html::escape(next.title),
+                    html::escape(next.why)
+                ));
+            }
+            body.push_str("<p><a href=\"/admin/onboarding\">Open setup</a></p></div>");
+        }
+    }
+
     if session.can(Capability::AuditRead) {
         body.push_str("<h2>Recent activity</h2>");
         if activity.is_empty() {

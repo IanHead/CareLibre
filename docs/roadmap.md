@@ -21,7 +21,7 @@ slices: each phase ships schema, API, tests and docs together.
 - Capability-based permission sets and OOTB personas (Phase 1 done)
 - Pagination, filtering and sorting conventions
 - Request IDs and structured audit for every mutation
-- Onboarding checklist and dashboard (see [`onboarding.md`](onboarding.md))
+- Onboarding checklist and dashboard (done)
 - One-time invitation links and CSV import with templates (both done)
 - PostgreSQL row-level security across tenants
 - Metrics endpoint (Prometheus)

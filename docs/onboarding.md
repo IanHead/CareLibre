@@ -296,6 +296,21 @@ Because the CRUD screens do not exist yet, the dashboard should ship in two step
 Building the full dashboard before the CRUD screens would produce a checklist of
 dead links, which is worse than no checklist.
 
+## Implementation status
+
+Phase 1 is built:
+
+- `organisation_onboarding` and `onboarding_task_states` (migration 0014);
+- `/admin/onboarding` with progress, stages, manual done/skip with reasons,
+  mode switch and go-live sign-off;
+- automatic detection for users, divisions, cost centres, services, rate
+  versions, contacts, relationships, committed imports, shifts and assignments;
+- dashboard card and Setup nav entry for `settings.manage`;
+- audit events for done/skip/sign-off.
+
+Still open: per-task ownership, first-login banner, catalogue version notices and
+phase 2/3 tasks (they light up as the underlying screens land).
+
 ## Implementation plan
 
 **Phase 1 (can start now)**

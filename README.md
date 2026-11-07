@@ -136,6 +136,8 @@ docs/           architecture, ADRs, admin, roadmap
   [`docs/invitations.md`](docs/invitations.md))
 - CSV import with templates, dry-run validation and all-or-nothing commit
   (see [`docs/import.md`](docs/import.md))
+- onboarding checklist with automatic task detection at `/admin/onboarding`
+  (see [`docs/onboarding.md`](docs/onboarding.md))
 
 See [`docs/admin.md`](docs/admin.md) for access rules and security notes.
 The planned first-run experience is described in

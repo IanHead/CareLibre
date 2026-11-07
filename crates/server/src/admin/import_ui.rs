@@ -59,6 +59,14 @@ pub async fn list(
         return response;
     }
 
+    let _ = sqlx::query(
+        "DELETE FROM import_batches
+         WHERE organisation_id = $1 AND expires_at < now() AND status <> 'committed'",
+    )
+    .bind(session.organisation_id)
+    .execute(&state.db)
+    .await;
+
     let recent = sqlx::query_as::<_, (Uuid, String, String, String, i32, i32, i32, DateTime<Utc>)>(
         "SELECT id, object_type, filename, status, row_count, created_count, updated_count, created_at
          FROM import_batches
@@ -210,6 +218,14 @@ pub async fn upload(
     let Some(object) = ObjectType::parse(&object_key) else {
         return not_found();
     };
+
+    let _ = sqlx::query(
+        "DELETE FROM import_batches
+         WHERE organisation_id = $1 AND expires_at < now() AND status <> 'committed'",
+    )
+    .bind(session.organisation_id)
+    .execute(&state.db)
+    .await;
 
     let mut csrf_token = None;
     let mut policy = "create_only".to_owned();

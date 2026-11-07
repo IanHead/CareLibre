@@ -12,6 +12,7 @@ pub mod erd;
 pub mod html;
 pub mod import_ui;
 pub mod invitations;
+pub mod onboarding;
 pub mod pages;
 pub mod permission_sets;
 pub mod schema;
@@ -65,6 +66,11 @@ pub fn router() -> Router<AppState> {
         )
         .route("/invitations/new", get(invitations::new_form))
         .route("/invitations/{id}/revoke", post(invitations::revoke))
+        .route("/onboarding", get(onboarding::index))
+        .route("/onboarding/{key}/done", post(onboarding::done))
+        .route("/onboarding/{key}/skip", post(onboarding::skip))
+        .route("/onboarding/signoff", post(onboarding::signoff))
+        .route("/onboarding/mode", post(onboarding::mode))
         .route("/import", get(import_ui::list))
         .route("/import/templates/{object}", get(import_ui::template))
         .route("/import/spec/{object}", get(import_ui::spec))

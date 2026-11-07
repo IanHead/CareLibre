@@ -19,9 +19,10 @@ use sqlx::{types::Json as SqlJson, FromRow, Postgres, QueryBuilder};
 use uuid::Uuid;
 
 use crate::{
-    auth::{extractor::AuthContext, role::Role},
+    auth::extractor::AuthContext,
     custom_fields::{validate_value, FieldRules, FieldType},
     error::AppError,
+    permissions::Capability,
     state::AppState,
 };
 
@@ -176,6 +177,7 @@ pub async fn list(
     auth: AuthContext,
     Query(params): Query<ListParams>,
 ) -> Result<Json<ContactListDto>, AppError> {
+    auth.require(Capability::ContactsRead)?;
     let limit = i64::from(params.limit.unwrap_or(200).clamp(1, 500));
     let search = params.search.unwrap_or_default().trim().to_owned();
     let role = params.role.unwrap_or_else(|| "all".to_owned());
@@ -242,6 +244,7 @@ pub async fn get(
     auth: AuthContext,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ContactDetailDto>, AppError> {
+    auth.require(Capability::ContactsRead)?;
     Ok(Json(load_detail(&state, auth.organisation_id, id).await?))
 }
 
@@ -250,7 +253,7 @@ pub async fn create(
     auth: AuthContext,
     Json(payload): Json<ContactWrite>,
 ) -> Result<(StatusCode, Json<ContactDetailDto>), AppError> {
-    ensure_write(auth.role)?;
+    auth.require(Capability::ContactsWrite)?;
 
     let (display_name, details, active) = validate_write(&payload)?;
     let values =
@@ -295,7 +298,7 @@ pub async fn update(
     Path(id): Path<Uuid>,
     Json(payload): Json<ContactWrite>,
 ) -> Result<Json<ContactDetailDto>, AppError> {
-    ensure_write(auth.role)?;
+    auth.require(Capability::ContactsWrite)?;
 
     let (display_name, details, active) = validate_write(&payload)?;
     let values =
@@ -342,6 +345,7 @@ pub async fn list_custom_fields(
     State(state): State<AppState>,
     auth: AuthContext,
 ) -> Result<Json<Vec<CustomFieldDto>>, AppError> {
+    auth.require(Capability::ContactsRead)?;
     let definitions = load_definitions(&state, auth.organisation_id).await?;
     Ok(Json(definitions.into_iter().map(definition_dto).collect()))
 }
@@ -616,14 +620,6 @@ async fn apply_custom_values(
     }
 
     Ok(())
-}
-
-fn ensure_write(role: Role) -> Result<(), AppError> {
-    if role == Role::Viewer {
-        Err(AppError::forbidden("viewer role cannot edit contacts"))
-    } else {
-        Ok(())
-    }
 }
 
 fn trim_optional(value: Option<&str>) -> Option<String> {

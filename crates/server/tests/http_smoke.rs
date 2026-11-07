@@ -145,6 +145,12 @@ async fn admin_custom_fields_require_authentication() {
 }
 
 #[tokio::test]
+async fn admin_onboarding_requires_authentication() {
+    let response = get("/admin/onboarding").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
 async fn admin_permission_sets_require_authentication() {
     let response = get("/admin/permission-sets").await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);

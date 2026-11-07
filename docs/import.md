@@ -24,8 +24,8 @@ Not built yet:
 
 - custom-field columns (`cf_<key>`) and shifts/assignments;
 - partial-success imports and background processing;
-- scheduled cleanup job for expired staged rows (rows expire logically but are
-  not yet purged automatically);
+- expired staged batches are purged opportunistically when the import screen or
+  upload handler runs, not by a background scheduler;
 - direct connectors.
 
 ## Principles
