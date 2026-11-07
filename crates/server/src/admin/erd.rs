@@ -69,7 +69,13 @@ pub fn render(model: &SchemaModel) -> String {
         let Some(&(x1, y1, h1)) = positions.get(table.name.as_str()) else {
             continue;
         };
+        let mut drawn_targets = std::collections::HashSet::new();
         for foreign_key in &table.foreign_keys {
+            // Several constraints can point at the same table (e.g. a
+            // composite tenancy FK plus the real reference); draw one edge.
+            if !drawn_targets.insert(foreign_key.target_table.as_str()) {
+                continue;
+            }
             let Some(&(x2, y2, h2)) = positions.get(foreign_key.target_table.as_str()) else {
                 continue;
             };

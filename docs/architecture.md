@@ -62,7 +62,14 @@ across tenants. The application-level checks stay as defence in depth.
 - Logout revokes the refresh token; access tokens expire naturally.
 - Login failures return the same message for unknown users and bad passwords.
 
-## Data model (foundation)
+## Data model
+
+The domain schema — divisions, cost centres and their configurable inheritance,
+contacts, external organisations, relationships, services, rates and rate
+versions, shifts, sessions and assignments — is described in
+[`docs/data-model.md`](docs/data-model.md).
+
+Foundation tables:
 
 | Table | Purpose |
 |---|---|

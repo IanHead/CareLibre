@@ -19,6 +19,9 @@ run: ## Run the server locally (requires PostgreSQL + .env)
 test: ## Run unit and integration tests
 	$(CARGO) test --workspace
 
+test-db: ## Run schema integration tests (requires DATABASE_URL)
+	$(CARGO) test --workspace -- --ignored
+
 fmt: ## Format the code
 	$(CARGO) fmt --all
 

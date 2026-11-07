@@ -110,20 +110,30 @@ impl SchemaModel {
         .await?;
 
         let fk_rows = sqlx::query_as::<_, ForeignKeyRow>(
-            "SELECT tc.table_name AS source_table,
-                    kcu.column_name AS source_column,
-                    ccu.table_name AS target_table,
-                    ccu.column_name AS target_column
-             FROM information_schema.table_constraints tc
-             JOIN information_schema.key_column_usage kcu
-               ON kcu.constraint_name = tc.constraint_name
-              AND kcu.table_schema = tc.table_schema
-             JOIN information_schema.constraint_column_usage ccu
-               ON ccu.constraint_name = tc.constraint_name
-              AND ccu.table_schema = tc.table_schema
-             WHERE tc.constraint_type = 'FOREIGN KEY'
-               AND tc.table_schema = 'public'
-             ORDER BY tc.table_name, kcu.ordinal_position",
+            "SELECT src.relname::text AS source_table,
+                    src_col.attname::text AS source_column,
+                    tgt.relname::text AS target_table,
+                    tgt_col.attname::text AS target_column
+             FROM pg_constraint con
+             JOIN pg_class src ON src.oid = con.conrelid
+             JOIN pg_class tgt ON tgt.oid = con.confrelid
+             JOIN pg_namespace n ON n.oid = src.relnamespace
+             CROSS JOIN LATERAL unnest(con.conkey, con.confkey)
+                 WITH ORDINALITY AS pair(src_attnum, tgt_attnum, ord)
+             JOIN pg_attribute src_col
+               ON src_col.attrelid = con.conrelid AND src_col.attnum = pair.src_attnum
+             JOIN pg_attribute tgt_col
+               ON tgt_col.attrelid = con.confrelid AND tgt_col.attnum = pair.tgt_attnum
+             WHERE con.contype = 'f'
+               AND n.nspname = 'public'
+               -- Tenant columns are implied by every table; hiding them keeps
+               -- the model readable while the constraint still appears on the
+               -- column badge and in the table definition.
+               AND src_col.attname <> 'organisation_id'
+               -- Composite FKs repeat the join column (shift_id ->
+               -- shift_sessions.shift_id); drop that half of the constraint.
+               AND NOT (src_col.attname = tgt_col.attname AND tgt_col.attname <> 'id')
+             ORDER BY src.relname, con.conname, pair.ord",
         )
         .fetch_all(db)
         .await?;

@@ -28,11 +28,15 @@ slices: each phase ships schema, API, tests and docs together.
 
 - **Divisions** — organisational units
 - **Cost centres** — hierarchical, with configurable inheritance paths
-- **Contacts** — clients, workers, and dual-role participants on one record
+- **Contacts** — untyped people record; client/workers/doctors/family are roles
+- **External organisations** — providers, brokers, health services
+- **Relationships** — typed links between contacts and organisations
 - **Services** — mapped to NDIS/Aged Care funding codes
 - **Rates** and **rate versions** (effective-dated pricing)
+- **Rostering schema** — shifts, sessions, client/worker assignments
 - Custom fields: every field toggleable, form layout editor
 - Document merge templates
+- REST API and validation for the above
 
 ## Phase 3 — Rostering
 

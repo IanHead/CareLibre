@@ -59,6 +59,9 @@ jobs:
           cargo install sqlx-cli --no-default-features --features postgres,rustls --locked
           sqlx migrate run --source migrations
 
+      - name: Schema integration tests
+        run: cargo test --workspace --all-targets -- --ignored
+
   docker:
     name: docker build
     runs-on: ubuntu-latest
