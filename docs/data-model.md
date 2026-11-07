@@ -138,6 +138,23 @@ another organisation, a contact is *guardian of* another contact, a person is a
   belongs to the same shift. Partial unique indexes prevent the same contact
   being assigned twice in the same scope.
 
+## Custom fields
+
+User-defined metadata for any object, never schema changes:
+
+- `custom_field_entities` lists the objects that may carry fields. Adding an
+  object type is an `INSERT`, not a migration.
+- `custom_field_definitions` holds the key, label, data type, required flag and
+  validation rules (length, numeric range, regex, choice options).
+- `custom_field_values` stores values as JSONB, unique per
+  `(organisation_id, definition_id, entity_id)`.
+
+A trigger rejects values whose JSON shape contradicts the definition, and checks
+choice values against the configured options. Object type and data type are
+immutable once values exist. Deleting a definition cascades its values; the UI
+requires explicit confirmation. See [`custom-fields.md`](custom-fields.md) and
+ADR 0007.
+
 ## Rules enforced by the database
 
 | Rule | Mechanism |
@@ -149,6 +166,8 @@ another organisation, a contact is *guardian of* another contact, a person is a
 | Tenant separation | composite `(organisation_id, id)` foreign keys |
 | One cost centre per record | unique `(organisation_id, entity_type, entity_id)` |
 | Relationship endpoints are in the same tenant | composite FKs to `organisations (tenant_id, id)` |
+| Custom values match their declared type and options | trigger `validate_custom_field_value` |
+| Custom field shape cannot change once values exist | trigger `guard_custom_field_definition_update` |
 
 ## Not yet modelled
 

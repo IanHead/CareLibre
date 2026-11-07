@@ -42,5 +42,5 @@ scope:
   currently enforced in application code only.
 - No rate limiting on `/auth/login`, `/auth/register` or the admin sign-in form
   yet.
-- The admin UI relies on `SameSite=Lax` cookies for CSRF protection; per-form
-  CSRF tokens are required before destructive admin actions are added.
+- Custom-field mutations use per-form CSRF tokens. Login, logout and other
+  low-risk forms still rely on `SameSite=Lax`.

@@ -126,6 +126,8 @@ docs/           architecture, ADRs, admin, roadmap
 - user and active-session lists
 - database explorer mapping tables, columns, keys and relationships (structure
   only — no record browsing)
+- custom fields for every object, with types, validation rules, archive and a
+  guarded delete (see [`docs/custom-fields.md`](docs/custom-fields.md))
 
 See [`docs/admin.md`](docs/admin.md) for access rules and security notes.
 

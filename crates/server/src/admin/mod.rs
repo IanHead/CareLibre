@@ -6,6 +6,8 @@
 //! `owner` or `admin` membership.
 
 pub mod auth;
+pub mod csrf;
+pub mod custom_fields;
 pub mod erd;
 pub mod html;
 pub mod pages;
@@ -26,4 +28,13 @@ pub fn router() -> Router<AppState> {
         .route("/users", get(pages::users))
         .route("/sessions", get(pages::sessions))
         .route("/schema", get(schema::page))
+        .route(
+            "/custom-fields",
+            get(custom_fields::list).post(custom_fields::create),
+        )
+        .route("/custom-fields/new", get(custom_fields::new_form))
+        .route("/custom-fields/{id}/edit", get(custom_fields::edit_form))
+        .route("/custom-fields/{id}", post(custom_fields::update))
+        .route("/custom-fields/{id}/archive", post(custom_fields::archive))
+        .route("/custom-fields/{id}/delete", post(custom_fields::delete))
 }

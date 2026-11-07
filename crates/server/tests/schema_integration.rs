@@ -10,6 +10,7 @@
 //! Every test runs inside a transaction that is rolled back, so the database is
 //! left untouched.
 
+use serde_json::json;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -480,4 +481,249 @@ async fn assignments_are_consistent_and_contacts_are_fluid() {
         .unwrap();
 
     tx.rollback().await.unwrap();
+}
+
+async fn create_custom_field(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    entity_type: &str,
+    key: &str,
+    data_type: &str,
+    options: Option<serde_json::Value>,
+) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO custom_field_definitions
+            (id, organisation_id, entity_type, key, label, data_type, options)
+         VALUES ($1, $2, $3, $4, 'Test field', $5, $6)",
+    )
+    .bind(id)
+    .bind(organisation)
+    .bind(entity_type)
+    .bind(key)
+    .bind(data_type)
+    .bind(options)
+    .execute(&mut **tx)
+    .await
+    .expect("insert custom field definition");
+    id
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn custom_field_values_are_type_checked_and_shape_is_locked() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let organisation = create_organisation(&mut tx).await;
+    let definition = create_custom_field(
+        &mut tx,
+        organisation,
+        "contact",
+        "ndis_number",
+        "text",
+        None,
+    )
+    .await;
+    let entity = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO custom_field_values
+            (id, organisation_id, definition_id, entity_type, entity_id, value)
+         VALUES ($1, $2, $3, 'contact', $4, $5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(definition)
+    .bind(entity)
+    .bind(json!("123456789"))
+    .execute(&mut *tx)
+    .await
+    .expect("text value accepted");
+
+    // A number is wrong for a text field.
+    sqlx::query("SAVEPOINT wrong_type")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let wrong_type = sqlx::query(
+        "INSERT INTO custom_field_values
+            (id, organisation_id, definition_id, entity_type, entity_id, value)
+         VALUES ($1, $2, $3, 'contact', $4, $5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(definition)
+    .bind(entity)
+    .bind(json!(123))
+    .execute(&mut *tx)
+    .await;
+    assert!(wrong_type.is_err(), "number must be rejected for text");
+    sqlx::query("ROLLBACK TO SAVEPOINT wrong_type")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // Data type cannot change while values exist.
+    sqlx::query("SAVEPOINT shape_change")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let shape_change =
+        sqlx::query("UPDATE custom_field_definitions SET data_type = 'integer' WHERE id = $1")
+            .bind(definition)
+            .execute(&mut *tx)
+            .await;
+    assert!(
+        shape_change.is_err(),
+        "data type must be immutable once values exist"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT shape_change")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // Deleting the definition removes its values.
+    sqlx::query("DELETE FROM custom_field_definitions WHERE id = $1")
+        .bind(definition)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM custom_field_values WHERE definition_id = $1")
+            .bind(definition)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0, "values cascade with the definition");
+
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn custom_field_select_enforces_options_and_entity_type() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let organisation = create_organisation(&mut tx).await;
+
+    // Choice fields must declare options.
+    sqlx::query("SAVEPOINT no_options")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let missing_options = create_custom_field_try(
+        &mut tx,
+        organisation,
+        "contact",
+        "contact_preference",
+        "select",
+        None,
+    )
+    .await;
+    assert!(missing_options.is_err(), "select requires options");
+    sqlx::query("ROLLBACK TO SAVEPOINT no_options")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let definition = create_custom_field(
+        &mut tx,
+        organisation,
+        "contact",
+        "contact_preference",
+        "select",
+        Some(json!(["phone", "email"])),
+    )
+    .await;
+
+    let entity = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO custom_field_values
+            (id, organisation_id, definition_id, entity_type, entity_id, value)
+         VALUES ($1, $2, $3, 'contact', $4, $5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(definition)
+    .bind(entity)
+    .bind(json!("phone"))
+    .execute(&mut *tx)
+    .await
+    .expect("configured option accepted");
+
+    sqlx::query("SAVEPOINT bad_option")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let bad_option = sqlx::query(
+        "INSERT INTO custom_field_values
+            (id, organisation_id, definition_id, entity_type, entity_id, value)
+         VALUES ($1, $2, $3, 'contact', $4, $5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(definition)
+    .bind(Uuid::now_v7())
+    .bind(json!("carrier_pigeon"))
+    .execute(&mut *tx)
+    .await;
+    assert!(bad_option.is_err(), "value outside options must fail");
+    sqlx::query("ROLLBACK TO SAVEPOINT bad_option")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // A field defined for contacts cannot be attached to a shift.
+    sqlx::query("SAVEPOINT wrong_entity")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let wrong_entity = sqlx::query(
+        "INSERT INTO custom_field_values
+            (id, organisation_id, definition_id, entity_type, entity_id, value)
+         VALUES ($1, $2, $3, 'shift', $4, $5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(definition)
+    .bind(Uuid::now_v7())
+    .bind(json!("phone"))
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        wrong_entity.is_err(),
+        "entity type must match the definition"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT wrong_entity")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    tx.rollback().await.unwrap();
+}
+
+async fn create_custom_field_try(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    entity_type: &str,
+    key: &str,
+    data_type: &str,
+    options: Option<serde_json::Value>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO custom_field_definitions
+            (id, organisation_id, entity_type, key, label, data_type, options)
+         VALUES ($1, $2, $3, $4, 'Test field', $5, $6)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(entity_type)
+    .bind(key)
+    .bind(data_type)
+    .bind(options)
+    .execute(&mut **tx)
+    .await
+    .map(|_| ())
 }

@@ -31,6 +31,7 @@ cookie is replayed.
 | `/admin/users` | Login accounts for the current organisation: name, email, role, status, last login |
 | `/admin/sessions` | Live sessions with client user-agent, start and expiry; marks the current session |
 | `/admin/schema` | Database explorer (see below) |
+| `/admin/custom-fields` | User-defined fields for every object, with types, validation and guarded deletion |
 
 All pages are organisation-scoped: queries bind `organisation_id` from the
 resolved session, never from the URL.
@@ -55,7 +56,6 @@ It reads PostgreSQL catalog views only (`pg_class`, `information_schema.*`,
 - All user-controlled values are HTML-escaped before rendering.
 - Database errors are logged server-side and replaced with a generic message —
   driver errors can contain the connection string.
-- **CSRF:** state-changing endpoints (`POST /admin/login`, `POST /admin/logout`)
-  rely on `SameSite=Lax`. Before adding destructive admin actions, introduce
-  per-form CSRF tokens.
+- **CSRF:** custom-field mutations use double-submit tokens (HttpOnly cookie plus
+  a hidden form field). Login/logout still rely on `SameSite=Lax`.
 - There is no rate limiting on the admin sign-in form yet.

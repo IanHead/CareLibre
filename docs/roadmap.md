@@ -34,7 +34,8 @@ slices: each phase ships schema, API, tests and docs together.
 - **Services** — mapped to NDIS/Aged Care funding codes
 - **Rates** and **rate versions** (effective-dated pricing)
 - **Rostering schema** — shifts, sessions, client/worker assignments
-- Custom fields: every field toggleable, form layout editor
+- Custom fields: definitions, types and validation (`/admin/custom-fields`);
+  form layout editor still to come
 - Document merge templates
 - REST API and validation for the above
 

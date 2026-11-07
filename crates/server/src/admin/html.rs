@@ -48,6 +48,7 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         out.push_str(&nav_item("/admin/users", "Users", active));
         out.push_str(&nav_item("/admin/sessions", "Sessions", active));
         out.push_str(&nav_item("/admin/schema", "Database", active));
+        out.push_str(&nav_item("/admin/custom-fields", "Custom fields", active));
         out.push_str("</nav>\n<div class=\"who\">\n");
         out.push_str("<span class=\"who-org\">");
         out.push_str(&escape(who.organisation));
@@ -220,4 +221,44 @@ tbody tr:hover { background: var(--bg); }
 .schema-card ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
 .schema-card ul code { color: var(--text); }
 footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12.5px; display: flex; gap: 8px; }
+.button {
+  display: inline-block; background: var(--accent); color: #062521;
+  padding: 8px 14px; border-radius: 7px; font-weight: 600; font-size: 13.5px;
+}
+.button:hover { text-decoration: none; filter: brightness(1.06); }
+.notice {
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  border: 1px solid var(--accent); border-radius: 8px;
+  padding: 12px 14px; font-size: 13px; margin-bottom: 18px;
+}
+.warn-box {
+  background: color-mix(in srgb, var(--warn) 12%, var(--card));
+  border: 1px solid var(--warn); border-radius: 8px;
+  padding: 12px 14px; font-size: 13px; margin-bottom: 18px;
+}
+.danger-box {
+  background: color-mix(in srgb, var(--bad) 8%, var(--card));
+  border: 1px solid var(--bad); border-radius: 10px;
+  padding: 16px 18px; font-size: 13.5px;
+}
+.danger-box p { margin: 0 0 10px; }
+.hint { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.form.wide { max-width: 760px; }
+.form select, .form textarea {
+  width: 100%; padding: 9px 11px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 14px;
+}
+.form textarea { resize: vertical; }
+.form .checkbox { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.form .checkbox input { width: auto; }
+.form .checkbox label {
+  margin: 0; text-transform: none; letter-spacing: 0;
+  font-size: 14px; color: var(--text);
+}
+.form button.secondary {
+  background: var(--card); color: var(--text); border: 1px solid var(--border); margin-top: 4px;
+}
+.form button.danger { background: var(--bad); color: #fff; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+@media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
 "#;

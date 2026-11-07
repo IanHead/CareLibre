@@ -136,6 +136,12 @@ async fn admin_schema_requires_authentication() {
 }
 
 #[tokio::test]
+async fn admin_custom_fields_require_authentication() {
+    let response = get("/admin/custom-fields").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
 async fn admin_login_page_is_public() {
     let response = get("/admin/login").await;
     assert_eq!(response.status(), StatusCode::OK);
