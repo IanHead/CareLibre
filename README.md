@@ -130,6 +130,8 @@ docs/           architecture, ADRs, admin, roadmap
   guarded delete (see [`docs/custom-fields.md`](docs/custom-fields.md))
 
 See [`docs/admin.md`](docs/admin.md) for access rules and security notes.
+The planned first-run experience is described in
+[`docs/onboarding.md`](docs/onboarding.md).
 
 ## Development
 make lint     # clippy, warnings as errors
