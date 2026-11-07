@@ -41,40 +41,62 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
     out.push_str("</style>\n</head>\n<body>\n");
 
     if let Some(who) = who {
-        out.push_str("<header class=\"topbar\">\n<div class=\"topbar-inner\">\n");
-        out.push_str(
-            "<a class=\"brand\" href=\"/admin\">CareLibre <span>Admin</span></a>\n<nav>\n",
-        );
-        out.push_str(&nav_item("/admin", "Dashboard", active));
-
         let capabilities = who.capabilities;
+        out.push_str("<div class=\"shell\">\n<aside class=\"sidebar\">\n");
+        out.push_str("<a class=\"brand\" href=\"/admin\">CareLibre <span>Admin</span></a>\n");
+        out.push_str("<input id=\"nav-filter\" class=\"nav-filter\" type=\"search\" placeholder=\"Filter menu\" aria-label=\"Filter menu\">\n");
+        out.push_str("<nav class=\"nav\" id=\"admin-nav\">\n");
+
+        out.push_str("<div class=\"nav-group\"><h2>Home</h2>");
+        out.push_str(&nav_item("/admin", "Dashboard", active));
         if capabilities.contains(crate::permissions::Capability::SettingsManage) {
             out.push_str(&nav_item("/admin/onboarding", "Setup", active));
         }
+        out.push_str("</div>");
+
+        let mut access = String::new();
         if capabilities.contains(crate::permissions::Capability::UsersManage) {
-            out.push_str(&nav_item("/admin/users", "Users", active));
-            out.push_str(&nav_item("/admin/invitations", "Invitations", active));
-            out.push_str(&nav_item("/admin/sessions", "Sessions", active));
+            access.push_str(&nav_item("/admin/users", "Users", active));
+            access.push_str(&nav_item("/admin/invitations", "Invitations", active));
+            access.push_str(&nav_item("/admin/sessions", "Sessions", active));
         } else if capabilities.contains(crate::permissions::Capability::AuditRead) {
-            out.push_str(&nav_item("/admin/sessions", "Sessions", active));
+            access.push_str(&nav_item("/admin/sessions", "Sessions", active));
         }
         if capabilities.contains(crate::permissions::Capability::PermissionSetsManage) {
-            out.push_str(&nav_item(
+            access.push_str(&nav_item(
                 "/admin/permission-sets",
                 "Permission sets",
                 active,
             ));
         }
-        if capabilities.contains(crate::permissions::Capability::CustomFieldsManage) {
-            out.push_str(&nav_item("/admin/custom-fields", "Custom fields", active));
+        if !access.is_empty() {
+            out.push_str("<div class=\"nav-group\"><h2>Access</h2>");
+            out.push_str(&access);
+            out.push_str("</div>");
         }
+
+        let mut data = String::new();
         if capabilities.contains(crate::permissions::Capability::DataImport) {
-            out.push_str(&nav_item("/admin/import", "Import", active));
+            data.push_str(&nav_item("/admin/import", "Import", active));
         }
+        if capabilities.contains(crate::permissions::Capability::CustomFieldsManage) {
+            data.push_str(&nav_item("/admin/custom-fields", "Custom fields", active));
+        }
+        if !data.is_empty() {
+            out.push_str("<div class=\"nav-group\"><h2>Data</h2>");
+            out.push_str(&data);
+            out.push_str("</div>");
+        }
+
+        out.push_str("<div class=\"nav-group\"><h2>System</h2>");
         if capabilities.contains(crate::permissions::Capability::SchemaView) {
             out.push_str(&nav_item("/admin/schema", "Database", active));
         }
-        out.push_str("</nav>\n<div class=\"who\">\n");
+        out.push_str(&nav_item("/", "Status page", active));
+        out.push_str(&nav_item("/docs", "API docs", active));
+        out.push_str("</div>");
+
+        out.push_str("</nav>\n<div class=\"sidebar-foot\">\n");
         out.push_str("<span class=\"who-org\">");
         out.push_str(&escape(who.organisation));
         out.push_str("</span>\n<span class=\"who-mail\">");
@@ -82,14 +104,27 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         out.push_str("</span>\n<span class=\"pill\">");
         out.push_str(&escape(who.role));
         out.push_str("</span>\n<form method=\"post\" action=\"/admin/logout\"><button class=\"link-button\" type=\"submit\">Sign out</button></form>\n");
-        out.push_str("</div>\n</div>\n</header>\n");
+        out.push_str("</div>\n</aside>\n<main class=\"content\">\n");
+    } else {
+        out.push_str("<main class=\"public\">\n");
     }
 
-    out.push_str("<main>\n");
     out.push_str(body);
     out.push_str("\n<footer><a href=\"/\">Status</a> · <a href=\"/docs\">API docs</a> · <span>v");
     out.push_str(env!("CARGO_PKG_VERSION"));
-    out.push_str("</span></footer>\n</main>\n</body>\n</html>\n");
+    out.push_str("</span></footer>\n</main>\n");
+
+    if who.is_some() {
+        out.push_str(
+            "<script>(function(){var input=document.getElementById('nav-filter');\
+             if(!input)return;input.addEventListener('input',function(){var q=input.value.trim().toLowerCase();\
+             document.querySelectorAll('.nav-group').forEach(function(group){var any=false;\
+             group.querySelectorAll('a.nav-item').forEach(function(link){var match=link.textContent.toLowerCase().indexOf(q)!==-1;\
+             link.style.display=match?'':'none';if(match)any=true;});group.style.display=any?'':'none';});});})();</script>\n",
+        );
+        out.push_str("</div>\n");
+    }
+    out.push_str("</body>\n</html>\n");
 
     out
 }
@@ -160,26 +195,37 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: .92em;
 }
-.topbar {
-  background: var(--card); border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; z-index: 5;
+.shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 100vh; }
+.sidebar {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  background: var(--card); border-right: 1px solid var(--border);
+  padding: 18px 14px; display: flex; flex-direction: column; gap: 14px;
 }
-.topbar-inner {
-  max-width: 1180px; margin: 0 auto; padding: 0 20px; height: 58px;
-  display: flex; align-items: center; gap: 26px;
-}
-.brand { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; color: var(--text); white-space: nowrap; }
+.brand { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; color: var(--text); white-space: nowrap; padding: 0 6px; }
 .brand span { color: var(--muted); font-weight: 400; }
-nav { display: flex; gap: 4px; flex: 1; }
-.nav-item {
-  padding: 7px 11px; border-radius: 7px; font-size: 14px; color: var(--muted);
+.nav-filter {
+  width: 100%; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 13px;
 }
+.nav-filter:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.nav { display: flex; flex-direction: column; gap: 18px; flex: 1; }
+.nav-group h2 { margin: 0 0 6px; padding: 0 8px; font-size: 10px; }
+.nav-item { display: block; padding: 7px 9px; border-radius: 7px; font-size: 13.5px; color: var(--muted); }
 .nav-item:hover { background: var(--bg); text-decoration: none; }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
-.who-org { color: var(--text); font-weight: 600; }
-.who-mail { display: none; }
-@media (min-width: 1100px) { .who-mail { display: inline; } }
+.sidebar-foot {
+  border-top: 1px solid var(--border); padding-top: 12px;
+  display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted);
+}
+.sidebar-foot .who-org { color: var(--text); font-weight: 600; font-size: 13px; }
+.who-mail { overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 860px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  .nav { flex-direction: row; flex-wrap: wrap; gap: 12px; }
+  .nav-group { flex: 1 1 160px; }
+  .sidebar-foot { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+}
 .pill {
   border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px;
   font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
@@ -188,7 +234,8 @@ nav { display: flex; gap: 4px; flex: 1; }
   background: none; border: 0; padding: 0; color: var(--accent);
   font: inherit; font-size: 13px; cursor: pointer;
 }
-main { max-width: 1180px; margin: 0 auto; padding: 34px 20px 60px; }
+.content { padding: 34px 36px 60px; width: 100%; max-width: 1180px; margin: 0 auto; }
+.public { max-width: 900px; margin: 0 auto; padding: 48px 20px 60px; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
 h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
 h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 34px 0 12px; font-weight: 600; }

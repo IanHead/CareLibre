@@ -44,6 +44,11 @@ cookie is replayed.
 All pages are organisation-scoped: queries bind `organisation_id` from the
 resolved session, never from the URL.
 
+Navigation is a grouped left sidebar — **Home**, **Access**, **Data** and
+**System** — with a filter box at the top. Groups and items are capability-gated,
+so each account sees only what it can use. On narrow screens the sidebar becomes
+a stacked header and the filter still applies.
+
 ## Database explorer
 
 `/admin/schema` maps the **data model**, not the data:
