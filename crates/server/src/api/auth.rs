@@ -207,7 +207,7 @@ pub async fn register(
         .await?;
 
     sqlx::query(
-        "INSERT INTO organisation_members (organisation_id, user_id, role) VALUES ($1, $2, 'owner')",
+        "INSERT INTO organisation_users (organisation_id, user_id, role) VALUES ($1, $2, 'owner')",
     )
     .bind(organisation_id)
     .bind(user_id)
@@ -278,7 +278,7 @@ pub async fn login(
 
     let memberships = sqlx::query_as::<_, MembershipRow>(
         "SELECT o.id AS organisation_id, o.slug AS organisation_slug, m.role
-         FROM organisation_members m
+         FROM organisation_users m
          JOIN organisations o ON o.id = m.organisation_id
          WHERE m.user_id = $1
          ORDER BY o.name",
@@ -353,7 +353,7 @@ pub async fn refresh(
         .await?;
 
     let role = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM organisation_members WHERE user_id = $1 AND organisation_id = $2",
+        "SELECT role FROM organisation_users WHERE user_id = $1 AND organisation_id = $2",
     )
     .bind(session.user_id)
     .bind(session.organisation_id)

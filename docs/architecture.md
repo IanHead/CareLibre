@@ -40,7 +40,7 @@ client ──HTTPS──▶ axum router
 Every domain row will belong to exactly one `organisation`. The current
 foundation enforces this in application code:
 
-- `organisation_members` maps users to organisations with a role.
+- `organisation_users` maps users to organisations with a role.
 - An access token is scoped to exactly one organisation (`org` claim).
 - A user with memberships in several organisations must choose one at login.
 
@@ -65,7 +65,7 @@ across tenants. The application-level checks stay as defence in depth.
 ## Data model
 
 The domain schema — divisions, cost centres and their configurable inheritance,
-contacts, external organisations, relationships, services, rates and rate
+contacts, organisations, relationships, services, rates and rate
 versions, shifts, sessions and assignments — is described in
 [`docs/data-model.md`](docs/data-model.md).
 
@@ -73,9 +73,9 @@ Foundation tables:
 
 | Table | Purpose |
 |---|---|
-| `organisations` | Tenant. `slug`, display name, edition (`community`/`business`/`enterprise`) |
+| `organisations` | Every organisation: tenant root, internal branches and external counterparties |
 | `users` | Global accounts, unique case-insensitive email |
-| `organisation_members` | User ↔ organisation with role |
+| `organisation_users` | Login accounts and roles (authentication, not the care model) |
 | `auth_sessions` | Refresh-token hashes, expiry, revocation |
 | `audit_log` | Append-only record of security-relevant actions |
 

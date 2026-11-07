@@ -8,7 +8,7 @@ plain HTML and inline CSS, no client-side framework and no JavaScript.
 - Sign in at `/admin/login` with an **owner** or **admin** account.
 - Accounts with `manager`, `staff` or `viewer` roles are rejected (HTTP 403).
 - If an account belongs to several organisations, supply the organisation slug
-  at sign-in; otherwise the sole membership is used.
+  at sign-in; otherwise the sole organisation is used.
 
 The session is an opaque token (the same kind as an API refresh token) stored in
 a `carelibre_admin` cookie:
@@ -28,7 +28,7 @@ cookie is replayed.
 | Path | Contents |
 |---|---|
 | `/admin` | Organisation overview: member and session counts, role, uptime, recent audit events |
-| `/admin/members` | Members of the current organisation: name, email, role, status, last login |
+| `/admin/users` | Login accounts for the current organisation: name, email, role, status, last login |
 | `/admin/sessions` | Live sessions with client user-agent, start and expiry; marks the current session |
 | `/admin/schema` | Database explorer (see below) |
 

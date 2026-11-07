@@ -45,7 +45,7 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
             "<a class=\"brand\" href=\"/admin\">CareLibre <span>Admin</span></a>\n<nav>\n",
         );
         out.push_str(&nav_item("/admin", "Dashboard", active));
-        out.push_str(&nav_item("/admin/members", "Members", active));
+        out.push_str(&nav_item("/admin/users", "Users", active));
         out.push_str(&nav_item("/admin/sessions", "Sessions", active));
         out.push_str(&nav_item("/admin/schema", "Database", active));
         out.push_str("</nav>\n<div class=\"who\">\n");

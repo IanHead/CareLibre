@@ -1,4 +1,4 @@
-//! Admin pages: dashboard, members and sessions.
+//! Admin pages: dashboard, users and sessions.
 //!
 //! All page content is organisation-scoped and read-only in this milestone.
 
@@ -18,9 +18,9 @@ use crate::{
 };
 
 pub async fn dashboard(State(state): State<AppState>, session: AdminSession) -> Response {
-    let members = count(
+    let users = count(
         &state,
-        "SELECT count(*) FROM organisation_members WHERE organisation_id = $1",
+        "SELECT count(*) FROM organisation_users WHERE organisation_id = $1",
         session.organisation_id,
     )
     .await;
@@ -33,8 +33,8 @@ pub async fn dashboard(State(state): State<AppState>, session: AdminSession) -> 
     )
     .await;
 
-    let (members, active_sessions) = match (members, active_sessions) {
-        (Ok(members), Ok(sessions)) => (members, sessions),
+    let (users, active_sessions) = match (users, active_sessions) {
+        (Ok(users), Ok(sessions)) => (users, sessions),
         (Err(err), _) | (_, Err(err)) => {
             tracing::error!(error = %err, "dashboard query failed");
             return failure("The dashboard could not be loaded.");
@@ -70,7 +70,7 @@ pub async fn dashboard(State(state): State<AppState>, session: AdminSession) -> 
     ));
 
     body.push_str("<div class=\"grid\">");
-    body.push_str(&metric("Members", &members.to_string()));
+    body.push_str(&metric("Users", &users.to_string()));
     body.push_str(&metric("Active sessions", &active_sessions.to_string()));
     body.push_str(&metric("Your role", session.role.as_str()));
     body.push_str(&metric(
@@ -97,9 +97,9 @@ pub async fn dashboard(State(state): State<AppState>, session: AdminSession) -> 
 
     body.push_str("<h2>Jump to</h2><div class=\"grid\">");
     body.push_str(&link_card(
-        "Members",
-        "People with access to this organisation.",
-        "/admin/members",
+        "Users",
+        "Accounts with access to this organisation.",
+        "/admin/users",
     ));
     body.push_str(&link_card(
         "Sessions",
@@ -116,10 +116,10 @@ pub async fn dashboard(State(state): State<AppState>, session: AdminSession) -> 
     page("Dashboard", "/admin", &session, body)
 }
 
-pub async fn members(State(state): State<AppState>, session: AdminSession) -> Response {
-    let rows = sqlx::query_as::<_, MemberRow>(
+pub async fn users(State(state): State<AppState>, session: AdminSession) -> Response {
+    let rows = sqlx::query_as::<_, UserRow>(
         "SELECT u.id, u.email, u.full_name, u.is_active, u.last_login_at, m.role, m.created_at
-         FROM organisation_members m
+         FROM organisation_users m
          JOIN users u ON u.id = m.user_id
          WHERE m.organisation_id = $1
          ORDER BY m.role, u.full_name",
@@ -131,18 +131,18 @@ pub async fn members(State(state): State<AppState>, session: AdminSession) -> Re
     let rows = match rows {
         Ok(rows) => rows,
         Err(err) => {
-            tracing::error!(error = %err, "members query failed");
-            return failure("Members could not be loaded.");
+            tracing::error!(error = %err, "users query failed");
+            return failure("Users could not be loaded.");
         }
     };
 
     let mut body = String::new();
     body.push_str(&html::page_head(
-        "Members",
-        "Everyone with access to this organisation.",
+        "Users",
+        "Accounts with access to this organisation.",
     ));
 
-    body.push_str("<table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last login (UTC)</th><th>Member since (UTC)</th></tr></thead><tbody>");
+    body.push_str("<table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last login (UTC)</th><th>User since (UTC)</th></tr></thead><tbody>");
     for row in &rows {
         body.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td><span class=\"pill\">{}</span></td><td>{}</td><td class=\"muted\">{}</td><td class=\"muted\">{}</td></tr>",
@@ -161,7 +161,7 @@ pub async fn members(State(state): State<AppState>, session: AdminSession) -> Re
     }
     body.push_str("</tbody></table>");
 
-    page("Members", "/admin/members", &session, body)
+    page("Users", "/admin/users", &session, body)
 }
 
 pub async fn sessions(State(state): State<AppState>, session: AdminSession) -> Response {
@@ -225,7 +225,7 @@ struct ActivityRow {
 }
 
 #[derive(Debug, FromRow)]
-struct MemberRow {
+struct UserRow {
     #[allow(dead_code)]
     id: Uuid,
     email: String,

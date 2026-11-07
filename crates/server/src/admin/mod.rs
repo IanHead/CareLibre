@@ -23,7 +23,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(pages::dashboard))
         .route("/login", get(auth::login_form).post(auth::login))
         .route("/logout", post(auth::logout))
-        .route("/members", get(pages::members))
+        .route("/users", get(pages::users))
         .route("/sessions", get(pages::sessions))
         .route("/schema", get(schema::page))
 }

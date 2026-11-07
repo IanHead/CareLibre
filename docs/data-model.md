@@ -8,32 +8,61 @@ information live at **`/admin/schema`**.
 1. **Every domain row is tenant-scoped.** `organisation_id` is on every table
    and composite foreign keys (`organisation_id, id`) make cross-tenant
    references impossible at the database level.
-2. **Contacts are untyped.** There is no `client`/`worker` column. Roles come
-   from relationships and from assignment rows.
-3. **Effective dates are half-open.** Rate versions and relationship periods use
+2. **There is one organisation table.** The tenant itself, internal branches and
+   external counterparties (providers, brokers, agencies) are all rows in
+   `organisations`, scoped by `tenant_id`. The tenant root points at itself.
+3. **Relationships are the only glue between parties.** Contacts and
+   organisations link to each other exclusively through `relationships`.
+4. **Contacts are untyped, organisations are not classified by table.** There is
+   no `client`/`worker` column and no separate external-organisation table.
+   `organisations.kind` is a free-text descriptor, not an enum.
+5. **Effective dates are half-open.** Rate versions and relationship periods use
    `[from, to)` semantics.
-4. **Derived data is computed, not duplicated.** A record's cost centre is
+6. **Derived data is computed, not duplicated.** A record's cost centre is
    resolved on demand from its direct assignment or its configured parents.
 
 ## Object map
 
 ```
-organisations (tenant)
- ├── organisation_members ── users
- ├── divisions ──▶ divisions (parent)
- ├── cost_centres ──▶ cost_centres (parent)
- │    └── cost_centre_assignments  (any entity_type + entity_id)
- ├── contacts
- ├── external_organisations
- ├── relationships  (contact ⇄ contact, contact ⇄ external org, org ⇄ org)
- ├── services ──▶ divisions
- │    └── rates
- │         └── rate_versions
- └── shifts ──▶ divisions
-      ├── shift_sessions
-      ├── client_assignments  ──▶ contacts
-      └── worker_assignments  ──▶ contacts
+organisations (tenant root, tenant_id = id)
+ └── organisations (internal branches, external counterparties; tenant_id = root)
+      ├── relationships ──▶ contacts | organisations
+      ├── divisions ──▶ divisions (parent)
+      ├── cost_centres ──▶ cost_centres (parent)
+      │    └── cost_centre_assignments  (any entity_type + entity_id)
+      ├── contacts
+      ├── services ──▶ divisions
+      │    └── rates
+      │         └── rate_versions
+      └── shifts ──▶ divisions
+           ├── shift_sessions
+           ├── client_assignments  ──▶ contacts
+           └── worker_assignments  ──▶ contacts
+
+organisation_users ── users      (authentication only, not the care model)
 ```
+
+## Organisations
+
+`organisations` holds every organisation:
+
+| Column | Meaning |
+|---|---|
+| `tenant_id` | Tenant root that owns this row. The root has `tenant_id = id` |
+| `slug` | URL slug, required for tenant roots, optional for counterparties |
+| `kind` | Free text: `provider`, `broker`, `health`, `agency`, … |
+| `abn` | Australian Business Number, 11 digits, optional |
+| `email`, `phone`, `website`, `notes` | Contact details |
+| `is_active` | Soft-disable without deleting history |
+
+A new row with no `tenant_id` is treated as a tenant root by
+`set_organisation_tenant()`; anything created inside a tenant sets `tenant_id`
+explicitly.
+
+`organisation_users` is **not** part of this model. It records which login
+accounts may access a tenant and with which role (`owner`, `admin`, `manager`,
+`staff`, `viewer`). Contact-to-organisation membership is expressed with
+`relationships`.
 
 ## Cost centres
 
@@ -68,24 +97,27 @@ VALUES
 
 ### Known entity types
 
-`division`, `contact`, `external_organisation`, `service`, `rate`, `shift`,
+`organisation`, `division`, `contact`, `service`, `rate`, `shift`,
 `shift_session`, `client_assignment`, `worker_assignment`. The column is free
 text so new types need no migration; keep this list in sync when adding one.
 
-## Contacts, organisations and relationships
+## Contacts and relationships
 
 - `contacts` holds people. Deliberately no `type` column: a participant can be a
   worker on another shift, and a family member can be a guardian, a nominee and
   a driver without duplicating the record.
-- `external_organisations` holds counterparties (providers, brokers, health
-  services, agencies). Not to be confused with `organisations` (tenants).
 - `relationships` is directed and typed (`relationship_type`, free text) with an
-  optional `inverse_name`. Exactly one entity per side, so all four
-  combinations are valid. Dates are optional.
+  optional `inverse_name`. Each side is exactly one `contact` or one
+  `organisation`, so contact↔contact, contact↔organisation and
+  organisation↔organisation links all use the same table. Dates are optional.
+
+Examples: a contact *works for* an organisation, an organisation *refers to*
+another organisation, a contact is *guardian of* another contact, a person is a
+*doctor at* a health provider.
 
 ## Divisions, services, rates
 
-- `divisions` are hierarchical organisational units.
+- `divisions` are hierarchical organisational units inside a tenant.
 - `services` belong to a division and map to a funding scheme:
   `ndis`, `aged_care` or `other`, with a funding code.
 - `rates` belong to a service, carry a name and a unit of measure
@@ -106,7 +138,7 @@ text so new types need no migration; keep this list in sync when adding one.
   belongs to the same shift. Partial unique indexes prevent the same contact
   being assigned twice in the same scope.
 
-## Rostering rules enforced by the database
+## Rules enforced by the database
 
 | Rule | Mechanism |
 |---|---|
@@ -116,6 +148,7 @@ text so new types need no migration; keep this list in sync when adding one.
 | No overlap between rate versions | trigger using `daterange &&` |
 | Tenant separation | composite `(organisation_id, id)` foreign keys |
 | One cost centre per record | unique `(organisation_id, entity_type, entity_id)` |
+| Relationship endpoints are in the same tenant | composite FKs to `organisations (tenant_id, id)` |
 
 ## Not yet modelled
 

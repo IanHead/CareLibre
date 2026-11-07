@@ -9,6 +9,7 @@ Short, dated records of decisions that are expensive to reverse.
 | [0003](0003-rest-openapi.md) | REST + OpenAPI, not GraphQL | Accepted |
 | [0004](0004-organisation-multi-tenancy.md) | Organisation-scoped multi-tenancy | Accepted |
 | [0005](0005-authentication.md) | Authentication: Argon2id + JWT + rotating refresh tokens | Accepted |
+| [0006](0006-unified-organisations.md) | Unified organisations and user access | Accepted |
 
 ## Adding an ADR
 

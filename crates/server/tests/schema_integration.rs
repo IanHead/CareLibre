@@ -273,29 +273,19 @@ async fn relationships_cannot_cross_tenants() {
     let organisation_b = create_organisation(&mut tx).await;
 
     let contact_a = create_contact(&mut tx, organisation_a).await;
-
-    let external_b = Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO external_organisations (id, organisation_id, name)
-         VALUES ($1, $2, 'Broker B')",
-    )
-    .bind(external_b)
-    .bind(organisation_b)
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    let contact_b = create_contact(&mut tx, organisation_b).await;
 
     // Contact from A, relationship owned by B: must be rejected by the
     // composite (organisation_id, contact_id) foreign key.
     let cross_tenant = sqlx::query(
         "INSERT INTO relationships
-            (id, organisation_id, from_contact_id, to_external_organisation_id, relationship_type)
+            (id, organisation_id, from_contact_id, to_contact_id, relationship_type)
          VALUES ($1, $2, $3, $4, 'broker')",
     )
     .bind(Uuid::now_v7())
     .bind(organisation_b)
     .bind(contact_a)
-    .bind(external_b)
+    .bind(contact_b)
     .execute(&mut *tx)
     .await;
 
@@ -303,6 +293,79 @@ async fn relationships_cannot_cross_tenants() {
         cross_tenant.is_err(),
         "relationship must not reference a contact from another tenant"
     );
+
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn organisations_are_unified_and_linked_by_relationships() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let tenant = create_organisation(&mut tx).await;
+
+    // An external counterparty is just another row in `organisations`, scoped
+    // to the tenant, and needs no slug of its own.
+    let partner = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO organisations (id, tenant_id, name, kind)
+         VALUES ($1, $2, 'Broker Co', 'broker')",
+    )
+    .bind(partner)
+    .bind(tenant)
+    .execute(&mut *tx)
+    .await
+    .expect("external organisation is a row in organisations");
+
+    let tenant_tenant: Uuid =
+        sqlx::query_scalar("SELECT tenant_id FROM organisations WHERE id = $1")
+            .bind(tenant)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(tenant_tenant, tenant, "tenant root points at itself");
+
+    // Internal (tenant) and external organisations are linked by relationships.
+    sqlx::query(
+        "INSERT INTO relationships
+            (id, organisation_id, from_organisation_id, to_organisation_id, relationship_type)
+         VALUES ($1, $2, $3, $4, 'referral_partner')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(tenant)
+    .bind(tenant)
+    .bind(partner)
+    .execute(&mut *tx)
+    .await
+    .expect("relationship between internal and external organisations");
+
+    // An organisation from another tenant cannot be an endpoint.
+    let other_tenant = create_organisation(&mut tx).await;
+
+    sqlx::query("SAVEPOINT foreign_org")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let cross_tenant = sqlx::query(
+        "INSERT INTO relationships
+            (id, organisation_id, from_organisation_id, to_organisation_id, relationship_type)
+         VALUES ($1, $2, $3, $4, 'referral_partner')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(tenant)
+    .bind(tenant)
+    .bind(other_tenant)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        cross_tenant.is_err(),
+        "relationship must not reference an organisation from another tenant"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT foreign_org")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
 
     tx.rollback().await.unwrap();
 }

@@ -108,7 +108,7 @@ impl FromRequestParts<AppState> for AdminSession {
              FROM auth_sessions s
              JOIN users u ON u.id = s.user_id
              JOIN organisations o ON o.id = s.organisation_id
-             JOIN organisation_members m
+             JOIN organisation_users m
                ON m.user_id = s.user_id AND m.organisation_id = s.organisation_id
              WHERE s.refresh_token_hash = $1
                AND s.revoked_at IS NULL
@@ -302,7 +302,7 @@ async fn authenticate(
 
     let memberships = sqlx::query_as::<_, MembershipRow>(
         "SELECT o.id AS organisation_id, o.slug AS organisation_slug, m.role
-         FROM organisation_members m
+         FROM organisation_users m
          JOIN organisations o ON o.id = m.organisation_id
          WHERE m.user_id = $1
          ORDER BY o.name",

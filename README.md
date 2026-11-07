@@ -122,8 +122,8 @@ docs/           architecture, ADRs, admin, roadmap
 
 `/admin` is a server-rendered admin area for owners and administrators:
 
-- dashboard with member/session counts and recent audit events
-- member and active-session lists
+- dashboard with user/session counts and recent audit events
+- user and active-session lists
 - database explorer mapping tables, columns, keys and relationships (structure
   only — no record browsing)
 
