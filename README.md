@@ -7,9 +7,45 @@ This repository contains the backend only: a REST API, PostgreSQL schema and
 deployment tooling. The desktop (Rust/egui), Android and iOS clients live in
 separate repositories and talk to this server over HTTP.
 
-> **Status: foundation.** Authentication, multi-tenancy and the migration
-> pipeline are in place. Care-domain objects (divisions, cost centres, contacts,
-> services, rates, rostering) are next — see [`docs/roadmap.md`](docs/roadmap.md).
+> **Status: early development.** Authentication, multi-tenancy, the care model,
+> relationships, rostering APIs and the admin tooling are in place. Native
+> clients live in separate repositories. This is a one-maintainer project: the
+> interfaces are usable, but expect them to change as the design settles. See
+> [`docs/roadmap.md`](docs/roadmap.md) for what is done and what is next.
+
+## What CareLibre is trying to do differently
+
+CareLibre is not trying to match every feature of a mature commercial care
+suite. These are the design choices it is built around.
+
+- **People are people; roles are relationships.** Contacts are untyped. Client,
+  worker, guardian, GP and emergency contact are roles on a relationship, so one
+  person can hold several roles without duplicate records. Each relationship
+  stores a role for both endpoints, so a doctor/patient link reads correctly from
+  either side.
+
+- **Rostering suggestions show their working.** The suitability endpoint ranks
+  workers from shift history and explicit constraints, and returns the reasons
+  and warnings behind every score. It recommends; it never auto-assigns.
+
+- **Preferences and conflicts are explicit.** `preferred`, `avoid` and `blocked`
+  constraints can target a client, another worker, a site, a service or a
+  division. Hard blocks stay hard; softer preferences act as bonuses or
+  penalties.
+
+- **History accumulates; scores are recomputed.** Assignment outcomes and
+  attendance feed history views. Care relationships are not overwritten by
+  learned affinity, so recommendations can be explained, audited or replaced
+  later as the model improves.
+
+- **Self-hosted by default.** The server is a single Rust binary backed by
+  PostgreSQL, with the admin UI, Swagger UI and migrations included. The
+  Community Edition runs with Docker Compose, and data stays in the provider's
+  own database.
+
+- **API-first.** The desktop, Android and iOS clients use the same OpenAPI
+  surface. The web admin is limited to server and organisation settings, not
+  day-to-day care work.
 
 ## Stack
 
@@ -75,15 +111,17 @@ All configuration is via environment variables (see `.env.example`).
 
 ## API
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/healthz` | — | Liveness |
-| `GET` | `/readyz` | — | Readiness (checks PostgreSQL) |
-| `POST` | `/api/v1/auth/register` | — | Create organisation + owner account |
-| `POST` | `/api/v1/auth/login` | — | Exchange credentials for tokens |
-| `POST` | `/api/v1/auth/refresh` | — | Rotate refresh token |
-| `POST` | `/api/v1/auth/logout` | — | Revoke refresh token |
-| `GET` | `/api/v1/me` | Bearer | Current user + organisation |
+The full spec is served at `/api-docs/openapi.json` and rendered at `/docs`.
+Application routes live under `/api/v1`:
+
+| Area | Endpoints |
+|---|---|
+| Auth | `register`, `login`, `refresh`, `logout`, `me` |
+| People | contacts and their custom fields |
+| Relationships | list, create, delete and the relationship graph |
+| Rostering | sites, shifts, assignments, explicit constraints and worker suitability |
+| Organisation | profile, name and logo upload/removal |
+| Health | `GET /healthz`, `GET /readyz` |
 
 Every error uses one envelope:
 
@@ -109,12 +147,15 @@ curl -sX POST localhost:8484/api/v1/auth/register \
 
 ```
 crates/server/src/
-  admin/        server-rendered admin UI and schema explorer
+  admin/        server-rendered admin UI, network graph, org settings
   api/          HTTP routes, DTOs, OpenAPI
   auth/         password hashing, JWTs, extractor, roles
   config.rs     environment configuration
   db.rs         pool + migrations
   error.rs      error envelope
+  organisation.rs  profile and logo branding
+  relationships.rs two-sided relationship graph
+  rostering.rs  suitability scoring
   state.rs      shared app state
 migrations/     sqlx migrations (forward-only)
 docs/           architecture, ADRs, admin, roadmap
@@ -128,6 +169,8 @@ docs/           architecture, ADRs, admin, roadmap
 - user and active-session lists
 - database explorer mapping tables, columns, keys and relationships (structure
   only — no record browsing)
+- relationship network with whole-organisation and per-party views
+- organisation settings: display name and logo used by clients
 - custom fields for every object, with types, validation rules, archive and a
   guarded delete (see [`docs/custom-fields.md`](docs/custom-fields.md))
 - capability-based permission sets with seven OOTB personas and per-user
