@@ -7,6 +7,26 @@ database operations check **capabilities**; personas are presets that group
 capabilities for common care-provider jobs. A provider can edit the presets or
 create their own sets, with a small number of non-negotiable guardrails.
 
+## Implementation status
+
+Phase 1 is shipped:
+
+- capability catalogue, permission sets, assignments and `is_owner` in migration
+  0008;
+- OOTB personas seeded per organisation (including existing organisations);
+- Administrator is immutable and the last owner cannot be demoted (DB triggers);
+- capabilities resolved per request for the admin UI;
+- `/admin/permission-sets` and per-user access assignment;
+- navigation and pages gated by capability, with `403` on direct access.
+
+Still outstanding:
+
+- API endpoints do not yet check capabilities (only `/me` exists);
+- House Manager is read-only **org-wide** until scoped assignments land;
+- invitations forward the chosen sets (invitation design is agreed, not built);
+- the legacy `role` column remains for JWT/display compatibility and must not be
+  used for new checks.
+
 ## Principles
 
 1. **Deny by default.** A user with no permission set can sign in but do nothing.
@@ -167,6 +187,7 @@ CREATE TABLE permission_sets (
                                     -- house_manager, finance, administrator
     is_system        boolean NOT NULL DEFAULT false,
     is_editable      boolean NOT NULL DEFAULT true,
+    sort_order       integer NOT NULL DEFAULT 100,
     created_at       timestamptz NOT NULL DEFAULT now(),
     updated_at       timestamptz NOT NULL DEFAULT now(),
     UNIQUE (organisation_id, id),

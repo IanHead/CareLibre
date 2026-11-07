@@ -13,6 +13,7 @@ use sqlx::{FromRow, PgPool};
 
 use crate::{
     admin::{auth::AdminSession, erd, html},
+    permissions::Capability,
     state::AppState,
 };
 
@@ -220,6 +221,10 @@ fn short_type(data_type: &str, udt_name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 pub async fn page(State(state): State<AppState>, session: AdminSession) -> Response {
+    if let Some(response) = session.guard(Capability::SchemaView) {
+        return response;
+    }
+
     let model = match SchemaModel::load(&state.db).await {
         Ok(model) => model,
         Err(err) => {

@@ -207,7 +207,8 @@ pub async fn register(
         .await?;
 
     sqlx::query(
-        "INSERT INTO organisation_users (organisation_id, user_id, role) VALUES ($1, $2, 'owner')",
+        "INSERT INTO organisation_users (organisation_id, user_id, role, is_owner)
+         VALUES ($1, $2, 'owner', true)",
     )
     .bind(organisation_id)
     .bind(user_id)

@@ -128,6 +128,8 @@ docs/           architecture, ADRs, admin, roadmap
   only — no record browsing)
 - custom fields for every object, with types, validation rules, archive and a
   guarded delete (see [`docs/custom-fields.md`](docs/custom-fields.md))
+- capability-based permission sets with seven OOTB personas and per-user
+  assignment (see [`docs/permissions.md`](docs/permissions.md))
 
 See [`docs/admin.md`](docs/admin.md) for access rules and security notes.
 The planned first-run experience is described in

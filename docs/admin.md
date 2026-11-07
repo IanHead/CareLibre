@@ -5,8 +5,13 @@ plain HTML and inline CSS, no client-side framework and no JavaScript.
 
 ## Access
 
-- Sign in at `/admin/login` with an **owner** or **admin** account.
-- Accounts with `manager`, `staff` or `viewer` roles are rejected (HTTP 403).
+- Any member of the organisation may sign in; what they see is determined by
+  their **permission sets** (capabilities), never by a role name.
+- Owners bypass capability checks. Everyone else needs the capability for a page
+  (for example `users.manage` for Users, `schema.view` for the database explorer).
+- Navigation items the account cannot use are hidden, and the handler returns
+  `403` if the URL is requested directly.
+- Accounts with no permission sets can sign in but see only a bare dashboard.
 - If an account belongs to several organisations, supply the organisation slug
   at sign-in; otherwise the sole organisation is used.
 
@@ -27,11 +32,13 @@ cookie is replayed.
 
 | Path | Contents |
 |---|---|
-| `/admin` | Organisation overview: member and session counts, role, uptime, recent audit events |
-| `/admin/users` | Login accounts for the current organisation: name, email, role, status, last login |
-| `/admin/sessions` | Live sessions with client user-agent, start and expiry; marks the current session |
+| `/admin` | Organisation overview: user and session counts, access label, uptime; recent audit events when permitted |
+| `/admin/users` | Login accounts, effective permission sets and access editing (`users.manage`) |
+| `/admin/sessions` | Live sessions with client user-agent, start and expiry (`users.manage` or `audit.read`) |
+| `/admin/permission-sets` | Capabilities and the seven OOTB personas (`permission_sets.manage`) |
 | `/admin/schema` | Database explorer (see below) |
-| `/admin/custom-fields` | User-defined fields for every object, with types, validation and guarded deletion |
+| `/admin/custom-fields` | User-defined fields for every object (`custom_fields.manage`) |
+| `/admin/users/{id}/access` | Assign one or more permission sets to a user |
 
 All pages are organisation-scoped: queries bind `organisation_id` from the
 resolved session, never from the URL.
@@ -51,11 +58,14 @@ It reads PostgreSQL catalog views only (`pg_class`, `information_schema.*`,
 
 ## Security notes
 
-- Role gating happens on every request, not just at sign-in.
+- Capability checks happen on every request, not just at sign-in. Owners bypass them.
 - The session token is stored hashed (SHA-256) in `auth_sessions`.
 - All user-controlled values are HTML-escaped before rendering.
 - Database errors are logged server-side and replaced with a generic message —
   driver errors can contain the connection string.
-- **CSRF:** custom-field mutations use double-submit tokens (HttpOnly cookie plus
-  a hidden form field). Login/logout still rely on `SameSite=Lax`.
+- **CSRF:** custom-field and permission-set mutations use double-submit tokens
+  (HttpOnly cookie plus a hidden form field). Login/logout still rely on
+  `SameSite=Lax`.
+- The Administrator set is immutable and the last owner cannot be demoted — both
+  enforced by database triggers, not just the UI.
 - There is no rate limiting on the admin sign-in form yet.

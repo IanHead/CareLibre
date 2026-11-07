@@ -23,6 +23,7 @@ pub struct Who<'a> {
     pub email: &'a str,
     pub organisation: &'a str,
     pub role: &'a str,
+    pub capabilities: crate::permissions::CapabilitySet,
 }
 
 /// Full page shell. `active` is the nav href to highlight.
@@ -45,10 +46,27 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
             "<a class=\"brand\" href=\"/admin\">CareLibre <span>Admin</span></a>\n<nav>\n",
         );
         out.push_str(&nav_item("/admin", "Dashboard", active));
-        out.push_str(&nav_item("/admin/users", "Users", active));
-        out.push_str(&nav_item("/admin/sessions", "Sessions", active));
-        out.push_str(&nav_item("/admin/schema", "Database", active));
-        out.push_str(&nav_item("/admin/custom-fields", "Custom fields", active));
+
+        let capabilities = who.capabilities;
+        if capabilities.contains(crate::permissions::Capability::UsersManage) {
+            out.push_str(&nav_item("/admin/users", "Users", active));
+            out.push_str(&nav_item("/admin/sessions", "Sessions", active));
+        } else if capabilities.contains(crate::permissions::Capability::AuditRead) {
+            out.push_str(&nav_item("/admin/sessions", "Sessions", active));
+        }
+        if capabilities.contains(crate::permissions::Capability::PermissionSetsManage) {
+            out.push_str(&nav_item(
+                "/admin/permission-sets",
+                "Permission sets",
+                active,
+            ));
+        }
+        if capabilities.contains(crate::permissions::Capability::CustomFieldsManage) {
+            out.push_str(&nav_item("/admin/custom-fields", "Custom fields", active));
+        }
+        if capabilities.contains(crate::permissions::Capability::SchemaView) {
+            out.push_str(&nav_item("/admin/schema", "Database", active));
+        }
         out.push_str("</nav>\n<div class=\"who\">\n");
         out.push_str("<span class=\"who-org\">");
         out.push_str(&escape(who.organisation));

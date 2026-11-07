@@ -19,6 +19,7 @@ use uuid::Uuid;
 use crate::{
     admin::{auth::AdminSession, csrf, html},
     custom_fields::{self, DefinitionDraft, FieldRules, FieldType},
+    permissions::Capability,
     state::AppState,
 };
 
@@ -105,6 +106,9 @@ pub async fn list(
     session: AdminSession,
     Query(params): Query<ListParams>,
 ) -> Response {
+    if let Some(response) = session.guard(Capability::CustomFieldsManage) {
+        return response;
+    }
     let definitions = sqlx::query_as::<_, DefinitionRow>(&format!(
         "{} ORDER BY d.entity_type, d.sort_order, d.key",
         SELECT_DEFINITIONS
@@ -211,6 +215,9 @@ pub async fn new_form(
     jar: CookieJar,
     Query(params): Query<NewParams>,
 ) -> Response {
+    if let Some(response) = session.guard(Capability::CustomFieldsManage) {
+        return response;
+    }
     let entities = match entity_options(&state).await {
         Ok(entities) => entities,
         Err(err) => {
@@ -255,6 +262,9 @@ pub async fn create(
     jar: CookieJar,
     Form(form): Form<DefinitionForm>,
 ) -> Response {
+    if let Some(response) = session.guard(Capability::CustomFieldsManage) {
+        return response;
+    }
     if !csrf::verify(&jar, &form.csrf) {
         return csrf_failure();
     }
@@ -339,6 +349,9 @@ pub async fn edit_form(
     Path(id): Path<Uuid>,
     jar: CookieJar,
 ) -> Response {
+    if let Some(response) = session.guard(Capability::CustomFieldsManage) {
+        return response;
+    }
     let Some(definition) = load_definition(&state, &session, id).await else {
         return not_found();
     };
@@ -370,6 +383,9 @@ pub async fn update(
     jar: CookieJar,
     Form(form): Form<DefinitionForm>,
 ) -> Response {
+    if let Some(response) = session.guard(Capability::CustomFieldsManage) {
+        return response;
+    }
     if !csrf::verify(&jar, &form.csrf) {
         return csrf_failure();
     }
@@ -476,6 +492,9 @@ pub async fn archive(
     jar: CookieJar,
     Form(form): Form<ConfirmForm>,
 ) -> Response {
+    if let Some(response) = session.guard(Capability::CustomFieldsManage) {
+        return response;
+    }
     if !csrf::verify(&jar, &form.csrf) {
         return csrf_failure();
     }
@@ -507,6 +526,9 @@ pub async fn delete(
     jar: CookieJar,
     Form(form): Form<ConfirmForm>,
 ) -> Response {
+    if let Some(response) = session.guard(Capability::CustomFieldsManage) {
+        return response;
+    }
     if !csrf::verify(&jar, &form.csrf) {
         return csrf_failure();
     }

@@ -11,6 +11,7 @@ pub mod custom_fields;
 pub mod erd;
 pub mod html;
 pub mod pages;
+pub mod permission_sets;
 pub mod schema;
 
 use axum::{
@@ -37,4 +38,22 @@ pub fn router() -> Router<AppState> {
         .route("/custom-fields/{id}", post(custom_fields::update))
         .route("/custom-fields/{id}/archive", post(custom_fields::archive))
         .route("/custom-fields/{id}/delete", post(custom_fields::delete))
+        .route(
+            "/permission-sets",
+            get(permission_sets::list).post(permission_sets::create),
+        )
+        .route("/permission-sets/new", get(permission_sets::new_form))
+        .route(
+            "/permission-sets/{id}/edit",
+            get(permission_sets::edit_form),
+        )
+        .route("/permission-sets/{id}", post(permission_sets::update))
+        .route(
+            "/permission-sets/{id}/delete",
+            post(permission_sets::delete),
+        )
+        .route(
+            "/users/{user_id}/access",
+            get(pages::user_access).post(pages::update_user_access),
+        )
 }

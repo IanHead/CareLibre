@@ -2,9 +2,7 @@
 //!
 //! The admin UI reuses the `auth_sessions` table, but stores the opaque refresh
 //! token in an HttpOnly cookie instead of returning it to JavaScript. Each page
-//! load resolves the cookie to a live session and checks the member's role.
-
-use std::str::FromStr;
+//! load resolves the cookie to a live session and loads the user's capability set.
 
 use axum::{
     extract::{FromRequestParts, State},
@@ -20,7 +18,8 @@ use uuid::Uuid;
 
 use crate::{
     admin::html,
-    auth::{password, refresh, role::Role},
+    auth::{password, refresh},
+    permissions::{Capability, CapabilitySet},
     state::AppState,
 };
 
@@ -32,7 +31,9 @@ pub struct AdminSession {
     pub session_id: Uuid,
     pub user_id: Uuid,
     pub organisation_id: Uuid,
-    pub role: Role,
+    pub is_owner: bool,
+    pub capabilities: CapabilitySet,
+    pub permission_set_names: String,
     pub email: String,
     pub full_name: String,
     pub organisation_name: String,
@@ -44,7 +45,8 @@ struct SessionRow {
     session_id: Uuid,
     user_id: Uuid,
     organisation_id: Uuid,
-    role: String,
+    is_owner: bool,
+    permission_set_names: String,
     email: String,
     full_name: String,
     organisation_name: String,
@@ -53,7 +55,6 @@ struct SessionRow {
 
 pub enum AdminRejection {
     Unauthenticated,
-    Forbidden { role: String },
     Internal,
 }
 
@@ -61,16 +62,6 @@ impl IntoResponse for AdminRejection {
     fn into_response(self) -> Response {
         match self {
             Self::Unauthenticated => Redirect::to("/admin/login").into_response(),
-            Self::Forbidden { role } => {
-                let body = html::error_page(
-                    "Access denied",
-                    &format!(
-                        "Your role ({role}) cannot access the admin area. \
-                         Ask an owner or administrator to change your role."
-                    ),
-                );
-                (StatusCode::FORBIDDEN, Html(body)).into_response()
-            }
             Self::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Html(html::error_page(
@@ -100,7 +91,14 @@ impl FromRequestParts<AppState> for AdminSession {
             "SELECT s.id AS session_id,
                     s.user_id,
                     s.organisation_id,
-                    m.role,
+                    m.is_owner,
+                    COALESCE((
+                        SELECT string_agg(ps.name, ', ' ORDER BY ps.name)
+                        FROM organisation_user_permission_sets oup
+                        JOIN permission_sets ps ON ps.id = oup.permission_set_id
+                        WHERE oup.organisation_id = s.organisation_id
+                          AND oup.user_id = s.user_id
+                    ), '') AS permission_set_names,
                     u.email,
                     u.full_name,
                     o.name AS organisation_name,
@@ -124,18 +122,42 @@ impl FromRequestParts<AppState> for AdminSession {
         })?
         .ok_or(AdminRejection::Unauthenticated)?;
 
-        let role = Role::from_str(&row.role).map_err(|_| AdminRejection::Internal)?;
-        if !role.can_manage_organisation() {
-            return Err(AdminRejection::Forbidden {
-                role: role.to_string(),
-            });
-        }
+        let capabilities = if row.is_owner {
+            CapabilitySet::all()
+        } else {
+            let keys = sqlx::query_scalar::<_, String>(
+                "SELECT c.capability
+                 FROM organisation_user_permission_sets oup
+                 JOIN permission_set_capabilities c
+                   ON c.permission_set_id = oup.permission_set_id
+                 WHERE oup.organisation_id = $1 AND oup.user_id = $2",
+            )
+            .bind(row.organisation_id)
+            .bind(row.user_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(|err| {
+                tracing::error!(error = %err, "capability lookup failed");
+                AdminRejection::Internal
+            })?;
+
+            let mut set = CapabilitySet::empty();
+            for key in keys {
+                match Capability::parse(&key) {
+                    Some(capability) => set.insert(capability),
+                    None => tracing::warn!(key, "unknown capability in database"),
+                }
+            }
+            set
+        };
 
         Ok(Self {
             session_id: row.session_id,
             user_id: row.user_id,
             organisation_id: row.organisation_id,
-            role,
+            is_owner: row.is_owner,
+            capabilities,
+            permission_set_names: row.permission_set_names,
             email: row.email,
             full_name: row.full_name,
             organisation_name: row.organisation_name,
@@ -150,9 +172,63 @@ impl AdminSession {
         html::Who {
             email: &self.email,
             organisation: &self.organisation_name,
-            role: self.role.as_str(),
+            role: self.role_label(),
+            capabilities: self.capabilities,
         }
     }
+
+    /// Owners bypass capability checks.
+    #[must_use]
+    pub fn can(&self, capability: Capability) -> bool {
+        self.is_owner || self.capabilities.contains(capability)
+    }
+
+    #[must_use]
+    pub fn can_any(&self, capabilities: &[Capability]) -> bool {
+        capabilities.iter().any(|capability| self.can(*capability))
+    }
+
+    /// Return a 403 response when the capability is missing.
+    #[must_use]
+    pub fn guard(&self, capability: Capability) -> Option<Response> {
+        if self.can(capability) {
+            None
+        } else {
+            Some(forbidden_page())
+        }
+    }
+
+    /// Return a 403 response when none of the capabilities are held.
+    #[must_use]
+    pub fn guard_any(&self, capabilities: &[Capability]) -> Option<Response> {
+        if self.can_any(capabilities) {
+            None
+        } else {
+            Some(forbidden_page())
+        }
+    }
+
+    #[must_use]
+    pub fn role_label(&self) -> &str {
+        if self.is_owner {
+            "owner"
+        } else if self.permission_set_names.is_empty() {
+            "no access"
+        } else {
+            &self.permission_set_names
+        }
+    }
+}
+
+fn forbidden_page() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Html(html::error_page(
+            "Access denied",
+            "Your permission sets do not allow this page. Ask an administrator to review your access.",
+        )),
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -195,13 +271,6 @@ pub async fn login(
         Err(LoginFailure::Invalid(message)) => {
             (StatusCode::UNAUTHORIZED, Html(login_page(Some(&message)))).into_response()
         }
-        Err(LoginFailure::Forbidden(role)) => {
-            let body = html::error_page(
-                "Access denied",
-                &format!("Your role ({role}) cannot access the admin area."),
-            );
-            (StatusCode::FORBIDDEN, Html(body)).into_response()
-        }
         Err(LoginFailure::Internal(err)) => {
             tracing::error!(error = %err, "admin login failed");
             (
@@ -238,7 +307,6 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
 #[derive(Debug)]
 enum LoginFailure {
     Invalid(String),
-    Forbidden(String),
     Internal(sqlx::Error),
 }
 
@@ -253,7 +321,6 @@ struct UserRow {
 struct MembershipRow {
     organisation_id: Uuid,
     organisation_slug: String,
-    role: String,
 }
 
 async fn authenticate(
@@ -301,7 +368,7 @@ async fn authenticate(
     }
 
     let memberships = sqlx::query_as::<_, MembershipRow>(
-        "SELECT o.id AS organisation_id, o.slug AS organisation_slug, m.role
+        "SELECT o.id AS organisation_id, o.slug AS organisation_slug
          FROM organisation_users m
          JOIN organisations o ON o.id = m.organisation_id
          WHERE m.user_id = $1
@@ -313,13 +380,6 @@ async fn authenticate(
     .map_err(LoginFailure::Internal)?;
 
     let membership = select_membership(memberships, organisation_slug.as_deref())?;
-
-    let role = Role::from_str(&membership.role)
-        .map_err(|_| LoginFailure::Internal(sqlx::Error::Protocol("unknown role".to_owned())))?;
-
-    if !role.can_manage_organisation() {
-        return Err(LoginFailure::Forbidden(role.to_string()));
-    }
 
     let (token, token_hash) = refresh::generate();
     let ttl = i64::try_from(state.config.refresh_token_ttl.as_secs()).unwrap_or(2_592_000);
@@ -430,7 +490,6 @@ mod tests {
         MembershipRow {
             organisation_id: Uuid::now_v7(),
             organisation_slug: slug.to_owned(),
-            role: "admin".to_owned(),
         }
     }
 

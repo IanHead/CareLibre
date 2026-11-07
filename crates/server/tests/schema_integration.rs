@@ -727,3 +727,241 @@ async fn create_custom_field_try(
     .await
     .map(|_| ())
 }
+
+async fn create_user(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    email: &str,
+    is_owner: bool,
+) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, full_name)
+         VALUES ($1, $2, 'not-a-real-hash', 'Test User')",
+    )
+    .bind(id)
+    .bind(format!("{email}-{id}@example.com"))
+    .execute(&mut **tx)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO organisation_users (organisation_id, user_id, role, is_owner)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(organisation)
+    .bind(id)
+    .bind(if is_owner { "owner" } else { "staff" })
+    .bind(is_owner)
+    .execute(&mut **tx)
+    .await
+    .expect("insert organisation user");
+
+    id
+}
+
+async fn set_id(tx: &mut Transaction<'_, Postgres>, organisation: Uuid, persona: &str) -> Uuid {
+    sqlx::query_scalar(
+        "SELECT id FROM permission_sets WHERE organisation_id = $1 AND persona_key = $2",
+    )
+    .bind(organisation)
+    .bind(persona)
+    .fetch_one(&mut **tx)
+    .await
+    .expect("persona exists")
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn permission_sets_are_seeded_for_new_organisations() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let organisation = create_organisation(&mut tx).await;
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM permission_sets WHERE organisation_id = $1")
+            .bind(organisation)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(count, 7, "seven OOTB personas are seeded");
+
+    for persona in [
+        "rostering",
+        "intake",
+        "human_resources",
+        "senior_management",
+        "house_manager",
+        "finance",
+        "administrator",
+    ] {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM permission_sets WHERE organisation_id = $1 AND persona_key = $2)",
+        )
+        .bind(organisation)
+        .bind(persona)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert!(exists, "persona {persona} is seeded");
+    }
+
+    let (editable, capabilities): (bool, i64) = sqlx::query_as(
+        "SELECT ps.is_editable,
+                (SELECT count(*) FROM permission_set_capabilities c
+                 WHERE c.permission_set_id = ps.id)
+         FROM permission_sets ps
+         WHERE ps.organisation_id = $1 AND ps.persona_key = 'administrator'",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let total_capabilities: i64 = sqlx::query_scalar("SELECT count(*) FROM capabilities")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+
+    assert!(!editable, "Administrator is immutable");
+    assert_eq!(capabilities, total_capabilities);
+
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn permission_sets_are_guarded_and_additive() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let organisation = create_organisation(&mut tx).await;
+    let owner = create_user(&mut tx, organisation, "owner", true).await;
+    let worker = create_user(&mut tx, organisation, "worker", false).await;
+
+    // The last owner cannot be demoted.
+    sqlx::query("SAVEPOINT demote_owner")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let demote = sqlx::query("UPDATE organisation_users SET is_owner = false WHERE user_id = $1")
+        .bind(owner)
+        .execute(&mut *tx)
+        .await;
+    assert!(demote.is_err(), "last owner cannot be demoted");
+    sqlx::query("ROLLBACK TO SAVEPOINT demote_owner")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // Administrator cannot be renamed or given/removed capabilities.
+    let administrator = set_id(&mut tx, organisation, "administrator").await;
+
+    sqlx::query("SAVEPOINT rename_admin")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let rename = sqlx::query("UPDATE permission_sets SET name = 'Everything' WHERE id = $1")
+        .bind(administrator)
+        .execute(&mut *tx)
+        .await;
+    assert!(rename.is_err(), "Administrator cannot be renamed");
+    sqlx::query("ROLLBACK TO SAVEPOINT rename_admin")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    sqlx::query("SAVEPOINT drop_admin_cap")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let drop_cap = sqlx::query(
+        "DELETE FROM permission_set_capabilities
+         WHERE permission_set_id = $1 AND capability = 'contacts.read'",
+    )
+    .bind(administrator)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        drop_cap.is_err(),
+        "Administrator capabilities are immutable"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT drop_admin_cap")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // Additive assignment: Rostering + Finance yields more than either alone.
+    let rostering = set_id(&mut tx, organisation, "rostering").await;
+    let finance = set_id(&mut tx, organisation, "finance").await;
+
+    for set in [rostering, finance] {
+        sqlx::query(
+            "INSERT INTO organisation_user_permission_sets
+                (organisation_id, user_id, permission_set_id)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(organisation)
+        .bind(worker)
+        .bind(set)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+
+    let rostering_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM permission_set_capabilities WHERE permission_set_id = $1",
+    )
+    .bind(rostering)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let union_count: i64 = sqlx::query_scalar(
+        "SELECT count(DISTINCT c.capability)
+         FROM organisation_user_permission_sets oup
+         JOIN permission_set_capabilities c ON c.permission_set_id = oup.permission_set_id
+         WHERE oup.organisation_id = $1 AND oup.user_id = $2",
+    )
+    .bind(organisation)
+    .bind(worker)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    assert!(
+        union_count > rostering_count,
+        "adding Finance must add capabilities"
+    );
+
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn permission_sets_cannot_cross_tenants() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let organisation_a = create_organisation(&mut tx).await;
+    let organisation_b = create_organisation(&mut tx).await;
+
+    let user_a = create_user(&mut tx, organisation_a, "cross", false).await;
+    let set_b = set_id(&mut tx, organisation_b, "rostering").await;
+
+    let cross = sqlx::query(
+        "INSERT INTO organisation_user_permission_sets
+            (organisation_id, user_id, permission_set_id)
+         VALUES ($1, $2, $3)",
+    )
+    .bind(organisation_a)
+    .bind(user_a)
+    .bind(set_b)
+    .execute(&mut *tx)
+    .await;
+
+    assert!(cross.is_err(), "permission sets are tenant-scoped");
+
+    tx.rollback().await.unwrap();
+}
