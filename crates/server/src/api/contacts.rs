@@ -551,9 +551,7 @@ async fn validate_custom_values(
                 json!({ "field": definition.label, "definition_id": definition.id }),
             )
         })?;
-        if !value.is_null() {
-            values.push((definition.id, value));
-        }
+        values.push((definition.id, value));
     }
 
     for key in provided.keys() {
@@ -595,20 +593,27 @@ async fn apply_custom_values(
     contact_id: Uuid,
     values: Vec<(Uuid, Value)>,
 ) -> Result<(), AppError> {
-    sqlx::query(
-        "DELETE FROM custom_field_values
-         WHERE organisation_id = $1 AND entity_type = 'contact' AND entity_id = $2",
-    )
-    .bind(organisation_id)
-    .bind(contact_id)
-    .execute(&mut **tx)
-    .await?;
-
     for (definition_id, value) in values {
+        if value.is_null() {
+            sqlx::query(
+                "DELETE FROM custom_field_values
+                 WHERE organisation_id = $1 AND definition_id = $2
+                   AND entity_type = 'contact' AND entity_id = $3",
+            )
+            .bind(organisation_id)
+            .bind(definition_id)
+            .bind(contact_id)
+            .execute(&mut **tx)
+            .await?;
+            continue;
+        }
+
         sqlx::query(
             "INSERT INTO custom_field_values
                 (id, organisation_id, definition_id, entity_type, entity_id, value)
-             VALUES ($1, $2, $3, 'contact', $4, $5)",
+             VALUES ($1, $2, $3, 'contact', $4, $5)
+             ON CONFLICT (organisation_id, definition_id, entity_id)
+             DO UPDATE SET value = excluded.value",
         )
         .bind(Uuid::now_v7())
         .bind(organisation_id)
