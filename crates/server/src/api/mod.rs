@@ -79,14 +79,21 @@ fn v1_routes() -> Router<AppState> {
             "/shifts",
             get(rostering::list_shifts).post(rostering::create_shift),
         )
+        .route("/shifts/batch", post(rostering::create_shifts))
         .route(
             "/shifts/{id}",
-            get(rostering::get_shift).patch(rostering::update_shift),
+            get(rostering::get_shift)
+                .patch(rostering::update_shift)
+                .delete(rostering::delete_shift),
         )
+        .route("/shifts/{id}/copy", post(rostering::copy_shift))
         .route(
             "/shifts/{id}/assignments",
             post(rostering::create_assignment),
         )
+        .route("/divisions", get(rostering::list_divisions))
+        .route("/services", get(rostering::list_services))
+        .route("/cost-centres", get(rostering::list_cost_centres))
         .route("/shifts/{id}/suitability", get(rostering::suitability))
         .route(
             "/assignments/{id}",

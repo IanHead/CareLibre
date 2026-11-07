@@ -53,6 +53,34 @@ pub struct SiteWrite {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct DivisionDto {
+    pub id: Uuid,
+    pub name: String,
+    pub code: Option<String>,
+    pub parent_id: Option<Uuid>,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ServiceDto {
+    pub id: Uuid,
+    pub name: String,
+    pub code: Option<String>,
+    pub division_id: Option<Uuid>,
+    pub division_name: Option<String>,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CostCentreDto {
+    pub id: Uuid,
+    pub code: String,
+    pub name: String,
+    pub parent_id: Option<Uuid>,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ShiftDto {
     pub id: Uuid,
     pub title: Option<String>,
@@ -67,8 +95,15 @@ pub struct ShiftDto {
     pub service_name: Option<String>,
     pub site_id: Option<Uuid>,
     pub site_name: Option<String>,
+    pub cost_centre_id: Option<Uuid>,
+    pub cost_centre_name: Option<String>,
+    pub cost_centre_code: Option<String>,
+    pub series_id: Option<Uuid>,
+    pub recurrence: Option<String>,
     pub client_count: i64,
     pub worker_count: i64,
+    pub clients: Vec<PartyRef>,
+    pub workers: Vec<PartyRef>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -83,6 +118,10 @@ pub struct ShiftListParams {
     pub status: Option<String>,
     pub site_id: Option<Uuid>,
     pub service_id: Option<Uuid>,
+    pub division_id: Option<Uuid>,
+    pub cost_centre_id: Option<Uuid>,
+    pub worker_id: Option<Uuid>,
+    pub client_id: Option<Uuid>,
     pub limit: Option<usize>,
 }
 
@@ -98,6 +137,20 @@ pub struct ShiftWrite {
     pub service_id: Option<Uuid>,
     pub site_id: Option<Uuid>,
     pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BatchShiftWrite {
+    pub shifts: Vec<ShiftWrite>,
+    pub recurrence: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CopyShiftWrite {
+    pub starts_at: Option<DateTime<Utc>>,
+    pub ends_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub include_assignments: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -157,7 +210,7 @@ pub struct ContextRef {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct PartyRef {
     pub id: Uuid,
     pub display_name: String,
@@ -243,6 +296,34 @@ struct SiteRow {
 }
 
 #[derive(Debug, FromRow)]
+struct DivisionRow {
+    id: Uuid,
+    name: String,
+    code: Option<String>,
+    parent_id: Option<Uuid>,
+    is_active: bool,
+}
+
+#[derive(Debug, FromRow)]
+struct ServiceRow {
+    id: Uuid,
+    name: String,
+    code: Option<String>,
+    division_id: Option<Uuid>,
+    division_name: Option<String>,
+    is_active: bool,
+}
+
+#[derive(Debug, FromRow)]
+struct CostCentreRow {
+    id: Uuid,
+    code: String,
+    name: String,
+    parent_id: Option<Uuid>,
+    is_active: bool,
+}
+
+#[derive(Debug, FromRow)]
 struct ShiftRow {
     id: Uuid,
     title: Option<String>,
@@ -257,8 +338,15 @@ struct ShiftRow {
     service_name: Option<String>,
     site_id: Option<Uuid>,
     site_name: Option<String>,
+    cost_centre_id: Option<Uuid>,
+    cost_centre_name: Option<String>,
+    cost_centre_code: Option<String>,
+    series_id: Option<Uuid>,
+    recurrence: Option<String>,
     client_count: i64,
     worker_count: i64,
+    clients: sqlx::types::Json<Vec<PartyRef>>,
+    workers: sqlx::types::Json<Vec<PartyRef>>,
     notes: Option<String>,
 }
 
@@ -334,15 +422,51 @@ SELECT s.id, s.title, s.kind, s.starts_at, s.ends_at, s.location, s.status,
        s.division_id, d.name AS division_name,
        s.service_id, sv.name AS service_name,
        s.site_id, st.name AS site_name,
+       cc.id AS cost_centre_id,
+       cc.name AS cost_centre_name,
+       cc.code AS cost_centre_code,
+       s.series_id,
+       s.recurrence,
        (SELECT count(*) FROM client_assignments ca
          WHERE ca.organisation_id = s.organisation_id AND ca.shift_id = s.id) AS client_count,
        (SELECT count(*) FROM worker_assignments wa
          WHERE wa.organisation_id = s.organisation_id AND wa.shift_id = s.id) AS worker_count,
+       COALESCE((
+         SELECT jsonb_agg(jsonb_build_object('id', c.id, 'display_name', c.display_name)
+                          ORDER BY c.display_name)
+         FROM client_assignments ca
+         JOIN contacts c
+           ON c.organisation_id = ca.organisation_id AND c.id = ca.contact_id
+         WHERE ca.organisation_id = s.organisation_id AND ca.shift_id = s.id
+       ), '[]'::jsonb) AS clients,
+       COALESCE((
+         SELECT jsonb_agg(jsonb_build_object('id', c.id, 'display_name', c.display_name)
+                          ORDER BY c.display_name)
+         FROM worker_assignments wa
+         JOIN contacts c
+           ON c.organisation_id = wa.organisation_id AND c.id = wa.contact_id
+         WHERE wa.organisation_id = s.organisation_id AND wa.shift_id = s.id
+       ), '[]'::jsonb) AS workers,
        s.notes
 FROM shifts s
 LEFT JOIN divisions d ON d.organisation_id = s.organisation_id AND d.id = s.division_id
 LEFT JOIN services sv ON sv.organisation_id = s.organisation_id AND sv.id = s.service_id
 LEFT JOIN sites st ON st.organisation_id = s.organisation_id AND st.id = s.site_id
+LEFT JOIN LATERAL (
+    SELECT cc.id, cc.name, cc.code
+    FROM cost_centres cc
+    WHERE cc.organisation_id = s.organisation_id
+      AND cc.id = COALESCE(
+        (SELECT cca.cost_centre_id
+         FROM cost_centre_assignments cca
+         WHERE cca.organisation_id = s.organisation_id
+           AND cca.entity_type = 'shift' AND cca.entity_id = s.id),
+        (SELECT cca.cost_centre_id
+         FROM cost_centre_assignments cca
+         WHERE cca.organisation_id = s.organisation_id
+           AND cca.entity_type = 'division' AND cca.entity_id = s.division_id)
+      )
+) cc ON TRUE
 ";
 
 const ASSIGNMENT_SELECT: &str = r"
@@ -504,6 +628,122 @@ pub async fn create_site(
 }
 
 // ---------------------------------------------------------------------------
+// Filter lists
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/divisions",
+    tag = "rostering",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "Divisions in this organisation", body = Vec<DivisionDto>),
+        (status = 401, description = "Missing or invalid access token", body = ErrorBody),
+        (status = 403, description = "Missing divisions.read capability", body = ErrorBody)
+    )
+)]
+pub async fn list_divisions(
+    State(state): State<AppState>,
+    auth: AuthContext,
+) -> Result<Json<Vec<DivisionDto>>, AppError> {
+    auth.require(Capability::RostersRead)?;
+    let rows = sqlx::query_as::<_, DivisionRow>(
+        "SELECT id, name, code, parent_id, is_active
+         FROM divisions WHERE organisation_id=$1 ORDER BY name",
+    )
+    .bind(auth.organisation_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| DivisionDto {
+                id: row.id,
+                name: row.name,
+                code: row.code,
+                parent_id: row.parent_id,
+                is_active: row.is_active,
+            })
+            .collect(),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/services",
+    tag = "rostering",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "Services in this organisation", body = Vec<ServiceDto>),
+        (status = 401, description = "Missing or invalid access token", body = ErrorBody),
+        (status = 403, description = "Missing services.read capability", body = ErrorBody)
+    )
+)]
+pub async fn list_services(
+    State(state): State<AppState>,
+    auth: AuthContext,
+) -> Result<Json<Vec<ServiceDto>>, AppError> {
+    auth.require(Capability::RostersRead)?;
+    let rows = sqlx::query_as::<_, ServiceRow>(
+        "SELECT sv.id, sv.name, sv.code, sv.division_id, d.name AS division_name, sv.is_active
+         FROM services sv
+         LEFT JOIN divisions d
+           ON d.organisation_id = sv.organisation_id AND d.id = sv.division_id
+         WHERE sv.organisation_id=$1 ORDER BY sv.name",
+    )
+    .bind(auth.organisation_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| ServiceDto {
+                id: row.id,
+                name: row.name,
+                code: row.code,
+                division_id: row.division_id,
+                division_name: row.division_name,
+                is_active: row.is_active,
+            })
+            .collect(),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/cost-centres",
+    tag = "rostering",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "Cost centres in this organisation", body = Vec<CostCentreDto>),
+        (status = 401, description = "Missing or invalid access token", body = ErrorBody),
+        (status = 403, description = "Missing cost_centres.read capability", body = ErrorBody)
+    )
+)]
+pub async fn list_cost_centres(
+    State(state): State<AppState>,
+    auth: AuthContext,
+) -> Result<Json<Vec<CostCentreDto>>, AppError> {
+    auth.require(Capability::RostersRead)?;
+    let rows = sqlx::query_as::<_, CostCentreRow>(
+        "SELECT id, code, name, parent_id, is_active
+         FROM cost_centres WHERE organisation_id=$1 ORDER BY code, name",
+    )
+    .bind(auth.organisation_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| CostCentreDto {
+                id: row.id,
+                code: row.code,
+                name: row.name,
+                parent_id: row.parent_id,
+                is_active: row.is_active,
+            })
+            .collect(),
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // Shifts
 // ---------------------------------------------------------------------------
 
@@ -552,6 +792,43 @@ pub async fn list_shifts(
     if let Some(service_id) = params.service_id {
         query.push(" AND s.service_id = ");
         query.push_bind(service_id);
+    }
+    if let Some(division_id) = params.division_id {
+        query.push(" AND s.division_id = ");
+        query.push_bind(division_id);
+    }
+    if let Some(cost_centre_id) = params.cost_centre_id {
+        query.push(
+            " AND EXISTS (
+                SELECT 1 FROM cost_centre_assignments cca
+                WHERE cca.organisation_id = s.organisation_id
+                  AND cca.cost_centre_id = ",
+        );
+        query.push_bind(cost_centre_id);
+        query.push(
+            " AND ((cca.entity_type = 'shift' AND cca.entity_id = s.id)
+                    OR (cca.entity_type = 'division' AND cca.entity_id = s.division_id)))",
+        );
+    }
+    if let Some(worker_id) = params.worker_id {
+        query.push(
+            " AND EXISTS (
+                SELECT 1 FROM worker_assignments wa
+                WHERE wa.organisation_id = s.organisation_id
+                  AND wa.shift_id = s.id AND wa.contact_id = ",
+        );
+        query.push_bind(worker_id);
+        query.push(")");
+    }
+    if let Some(client_id) = params.client_id {
+        query.push(
+            " AND EXISTS (
+                SELECT 1 FROM client_assignments ca
+                WHERE ca.organisation_id = s.organisation_id
+                  AND ca.shift_id = s.id AND ca.contact_id = ",
+        );
+        query.push_bind(client_id);
+        query.push(")");
     }
 
     query.push(" ORDER BY s.starts_at, s.id LIMIT ");
@@ -740,6 +1017,234 @@ pub async fn update_shift(
     .await?;
 
     Ok(Json(load_shift(&state, auth.organisation_id, id).await?))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/shifts/batch",
+    tag = "rostering",
+    security(("bearer_auth" = [])),
+    request_body = BatchShiftWrite,
+    responses(
+        (status = 201, description = "Shifts created atomically", body = ShiftList),
+        (status = 401, description = "Missing or invalid access token", body = ErrorBody),
+        (status = 403, description = "Missing rosters.write capability", body = ErrorBody),
+        (status = 422, description = "Validation failed", body = ErrorBody)
+    )
+)]
+pub async fn create_shifts(
+    State(state): State<AppState>,
+    auth: AuthContext,
+    Json(payload): Json<BatchShiftWrite>,
+) -> Result<(StatusCode, Json<ShiftList>), AppError> {
+    auth.require(Capability::RostersWrite)?;
+    if payload.shifts.is_empty() || payload.shifts.len() > 100 {
+        return Err(AppError::validation(
+            "a batch must contain between 1 and 100 shifts",
+        ));
+    }
+    let recurrence = payload
+        .recurrence
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "none")
+        .map(str::to_owned);
+    if recurrence
+        .as_deref()
+        .is_some_and(|value| value.chars().count() > 64)
+    {
+        return Err(AppError::validation(
+            "recurrence must be 64 characters or fewer",
+        ));
+    }
+
+    let mut validated = Vec::with_capacity(payload.shifts.len());
+    for shift in &payload.shifts {
+        let kind = validate_kind(shift.kind.as_deref())?;
+        let status = validate_status(shift.status.as_deref())?;
+        validate_times(shift.starts_at, shift.ends_at)?;
+        if let Some(division_id) = shift.division_id {
+            ensure_division(&state, auth.organisation_id, division_id).await?;
+        }
+        if let Some(service_id) = shift.service_id {
+            ensure_service(&state, auth.organisation_id, service_id).await?;
+        }
+        if let Some(site_id) = shift.site_id {
+            ensure_site(&state, auth.organisation_id, site_id).await?;
+        }
+        validated.push((kind, status));
+    }
+
+    let series_id = (payload.shifts.len() > 1).then(Uuid::now_v7);
+    let mut tx = state.db.begin().await?;
+    let mut ids = Vec::with_capacity(payload.shifts.len());
+    for (shift, (kind, status)) in payload.shifts.iter().zip(validated) {
+        let id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO shifts
+                (id, organisation_id, division_id, service_id, site_id, title, kind,
+                 starts_at, ends_at, location, status, notes, series_id, recurrence)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+        )
+        .bind(id)
+        .bind(auth.organisation_id)
+        .bind(shift.division_id)
+        .bind(shift.service_id)
+        .bind(shift.site_id)
+        .bind(
+            shift
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(kind)
+        .bind(shift.starts_at)
+        .bind(shift.ends_at)
+        .bind(
+            shift
+                .location
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(status)
+        .bind(
+            shift
+                .notes
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(series_id)
+        .bind(&recurrence)
+        .execute(&mut *tx)
+        .await?;
+        ids.push(id);
+    }
+    tx.commit().await?;
+
+    let mut items = Vec::with_capacity(ids.len());
+    for id in ids {
+        items.push(load_shift(&state, auth.organisation_id, id).await?);
+    }
+    Ok((StatusCode::CREATED, Json(ShiftList { items })))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/shifts/{id}/copy",
+    tag = "rostering",
+    security(("bearer_auth" = [])),
+    params(("id" = Uuid, Path, description = "Source shift id")),
+    request_body = CopyShiftWrite,
+    responses(
+        (status = 201, description = "Shift copied", body = ShiftDetail),
+        (status = 401, description = "Missing or invalid access token", body = ErrorBody),
+        (status = 403, description = "Missing rosters.write capability", body = ErrorBody),
+        (status = 404, description = "Shift not found", body = ErrorBody),
+        (status = 422, description = "Validation failed", body = ErrorBody)
+    )
+)]
+pub async fn copy_shift(
+    State(state): State<AppState>,
+    auth: AuthContext,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<CopyShiftWrite>,
+) -> Result<(StatusCode, Json<ShiftDetail>), AppError> {
+    auth.require(Capability::RostersWrite)?;
+    let existing = load_shift_row(&state, auth.organisation_id, id).await?.row;
+    let duration = existing.ends_at - existing.starts_at;
+    let starts_at = payload.starts_at.unwrap_or(existing.starts_at);
+    let ends_at = payload.ends_at.unwrap_or(starts_at + duration);
+    validate_times(starts_at, ends_at)?;
+
+    let new_id = Uuid::now_v7();
+    let mut tx = state.db.begin().await?;
+    sqlx::query(
+        "INSERT INTO shifts
+            (id, organisation_id, division_id, service_id, site_id, title, kind,
+             starts_at, ends_at, location, status, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11)",
+    )
+    .bind(new_id)
+    .bind(auth.organisation_id)
+    .bind(existing.division_id)
+    .bind(existing.service_id)
+    .bind(existing.site_id)
+    .bind(&existing.title)
+    .bind(&existing.kind)
+    .bind(starts_at)
+    .bind(ends_at)
+    .bind(&existing.location)
+    .bind(&existing.notes)
+    .execute(&mut *tx)
+    .await?;
+
+    if payload.include_assignments {
+        for (table, role) in [
+            ("client_assignments", "client"),
+            ("worker_assignments", "worker"),
+        ] {
+            let query = format!(
+                "INSERT INTO {table}
+                    (id, organisation_id, shift_id, session_id, contact_id, status, notes)
+                 SELECT gen_random_uuid(), organisation_id, $1, NULL, contact_id,
+                        'assigned', notes
+                 FROM {table}
+                 WHERE organisation_id=$2 AND shift_id=$3"
+            );
+            sqlx::query(&query)
+                .bind(new_id)
+                .bind(auth.organisation_id)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            let _ = role;
+        }
+    }
+    tx.commit().await?;
+
+    let shift = load_shift(&state, auth.organisation_id, new_id).await?;
+    let assignments = load_assignments(&state, auth.organisation_id, new_id).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ShiftDetail {
+            shift,
+            assignments: assignments.into_iter().map(assignment_dto).collect(),
+        }),
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/shifts/{id}",
+    tag = "rostering",
+    security(("bearer_auth" = [])),
+    params(("id" = Uuid, Path, description = "Shift id")),
+    responses(
+        (status = 204, description = "Shift deleted"),
+        (status = 401, description = "Missing or invalid access token", body = ErrorBody),
+        (status = 403, description = "Missing rosters.write capability", body = ErrorBody),
+        (status = 404, description = "Shift not found", body = ErrorBody)
+    )
+)]
+pub async fn delete_shift(
+    State(state): State<AppState>,
+    auth: AuthContext,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    auth.require(Capability::RostersWrite)?;
+    let removed = sqlx::query("DELETE FROM shifts WHERE organisation_id=$1 AND id=$2")
+        .bind(auth.organisation_id)
+        .bind(id)
+        .execute(&state.db)
+        .await?
+        .rows_affected();
+    if removed == 0 {
+        return Err(AppError::not_found("shift not found"));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ---------------------------------------------------------------------------
@@ -1721,8 +2226,15 @@ fn shift_dto(row: ShiftRow) -> ShiftDto {
         service_name: row.service_name,
         site_id: row.site_id,
         site_name: row.site_name,
+        cost_centre_id: row.cost_centre_id,
+        cost_centre_name: row.cost_centre_name,
+        cost_centre_code: row.cost_centre_code,
+        series_id: row.series_id,
+        recurrence: row.recurrence,
         client_count: row.client_count,
         worker_count: row.worker_count,
+        clients: row.clients.0,
+        workers: row.workers.0,
     }
 }
 

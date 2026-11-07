@@ -109,6 +109,9 @@ async fn admin_organisation_requires_authentication() {
 async fn rostering_requires_authentication() {
     for uri in [
         "/api/v1/sites",
+        "/api/v1/divisions",
+        "/api/v1/services",
+        "/api/v1/cost-centres",
         "/api/v1/shifts",
         "/api/v1/shifts/00000000-0000-0000-0000-000000000000",
         "/api/v1/shifts/00000000-0000-0000-0000-000000000000/suitability",

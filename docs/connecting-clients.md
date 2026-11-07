@@ -122,12 +122,27 @@ organisation name (or a neutral wordmark) when `logo` is `null`.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/v1/sites` / `POST /api/v1/sites` | Physical sites where care happens |
-| `GET /api/v1/shifts` / `POST /api/v1/shifts` | List and create shifts with division, service and site |
+| `GET /api/v1/divisions`, `/services`, `/cost-centres` | Filter option lists |
+| `GET /api/v1/shifts` / `POST /api/v1/shifts` | List and create shifts |
+| `POST /api/v1/shifts/batch` | Atomically create a recurring series (`shifts` + `recurrence`) |
 | `GET /api/v1/shifts/{id}` / `PATCH /api/v1/shifts/{id}` | Shift detail and updates |
+| `DELETE /api/v1/shifts/{id}` | Delete a shift and its assignments |
+| `POST /api/v1/shifts/{id}/copy` | Paste a shift with optional assignments |
 | `POST /api/v1/shifts/{id}/assignments` | Assign a worker or client |
 | `PATCH /api/v1/assignments/{id}` | Update status, outcome and rating |
 | `GET /api/v1/shifts/{id}/suitability` | Ranked worker candidates with reasons |
 | `GET/POST /api/v1/roster-constraints` | Explicit preferred, avoid and blocked constraints |
+
+`GET /api/v1/shifts` accepts `from`, `to`, `status`, `site_id`, `service_id`,
+`division_id`, `cost_centre_id`, `worker_id` and `client_id`. Each shift carries
+`clients` and `workers` (id + display name), resolved `cost_centre_id/name/code`,
+and optional `series_id` / `recurrence` metadata. Recurrence is computed by the
+client in local wall time and submitted as a batch; the server keeps the
+occurrences atomic and ties them together with one `series_id`.
+
+`POST /api/v1/shifts/{id}/copy` accepts `starts_at`, `ends_at` and
+`include_assignments`. The copy is created as a draft; when assignments are
+included they are recreated in `assigned` state.
 
 `/suitability` returns `candidates` (ranked, with `reasons` and `warnings`) and a
 separate `blocked` list for hard exclusions. Scores are **advisory**; the server
