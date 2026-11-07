@@ -259,13 +259,7 @@ pub async fn login(
 
     match authenticate(&state, &form, user_agent).await {
         Ok(token) => {
-            let cookie = Cookie::build((COOKIE_NAME, token))
-                .http_only(true)
-                .same_site(SameSite::Lax)
-                .path("/")
-                .secure(state.config.environment.is_production())
-                .build();
-
+            let cookie = session_cookie(&state, token);
             (jar.add(cookie), Redirect::to("/admin")).into_response()
         }
         Err(LoginFailure::Invalid(message)) => {
@@ -308,6 +302,45 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
 enum LoginFailure {
     Invalid(String),
     Internal(sqlx::Error),
+}
+
+/// Build the browser session cookie. Lifetime is the browser session; the
+/// server-side expiry is `REFRESH_TOKEN_TTL_SECS`.
+#[must_use]
+pub(crate) fn session_cookie(state: &AppState, token: String) -> Cookie<'static> {
+    Cookie::build((COOKIE_NAME, token))
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .path("/")
+        .secure(state.config.environment.is_production())
+        .build()
+}
+
+/// Create a server-side session and return the opaque token for the cookie.
+pub(crate) async fn start_session(
+    state: &AppState,
+    user_id: Uuid,
+    organisation_id: Uuid,
+    user_agent: Option<String>,
+) -> Result<String, sqlx::Error> {
+    let (token, token_hash) = refresh::generate();
+    let ttl = i64::try_from(state.config.refresh_token_ttl.as_secs()).unwrap_or(2_592_000);
+
+    sqlx::query(
+        "INSERT INTO auth_sessions
+            (id, user_id, organisation_id, refresh_token_hash, user_agent, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(user_id)
+    .bind(organisation_id)
+    .bind(&token_hash)
+    .bind(user_agent)
+    .bind(Utc::now() + chrono::Duration::seconds(ttl))
+    .execute(&state.db)
+    .await?;
+
+    Ok(token)
 }
 
 #[derive(Debug, FromRow)]
@@ -381,23 +414,9 @@ async fn authenticate(
 
     let membership = select_membership(memberships, organisation_slug.as_deref())?;
 
-    let (token, token_hash) = refresh::generate();
-    let ttl = i64::try_from(state.config.refresh_token_ttl.as_secs()).unwrap_or(2_592_000);
-
-    sqlx::query(
-        "INSERT INTO auth_sessions
-            (id, user_id, organisation_id, refresh_token_hash, user_agent, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(Uuid::now_v7())
-    .bind(user.id)
-    .bind(membership.organisation_id)
-    .bind(&token_hash)
-    .bind(user_agent)
-    .bind(Utc::now() + chrono::Duration::seconds(ttl))
-    .execute(&state.db)
-    .await
-    .map_err(LoginFailure::Internal)?;
+    let token = start_session(state, user.id, membership.organisation_id, user_agent)
+        .await
+        .map_err(LoginFailure::Internal)?;
 
     let _ = sqlx::query("UPDATE users SET last_login_at = now() WHERE id = $1")
         .bind(user.id)

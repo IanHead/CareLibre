@@ -191,6 +191,7 @@ pub async fn users(State(state): State<AppState>, session: AdminSession) -> Resp
         "Accounts and permission sets for this organisation.",
     ));
 
+    body.push_str("<p><a class=\"button\" href=\"/admin/invitations/new\">Invite a user</a></p>");
     body.push_str("<p class=\"sub\">Owners bypass capability checks. Everyone else sees exactly what their permission sets allow.</p>");
     body.push_str("<table><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Status</th><th>Last login (UTC)</th><th>User since (UTC)</th><th></th></tr></thead><tbody>");
     for row in &rows {

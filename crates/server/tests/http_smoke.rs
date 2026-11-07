@@ -28,6 +28,9 @@ fn test_state() -> AppState {
     };
 
     let pool = PgPoolOptions::new()
+        // These tests never have a database; fail fast instead of waiting for
+        // the default 30-second acquire timeout on public pages that query.
+        .acquire_timeout(Duration::from_secs(1))
         .connect_lazy(&config.database_url)
         .expect("lazy pool should parse");
 
@@ -156,4 +159,20 @@ async fn admin_login_page_is_public() {
     let html = String::from_utf8(body.to_vec()).unwrap();
     assert!(html.contains("action=\"/admin/login\""));
     assert!(html.contains("name=\"email\""));
+}
+
+#[tokio::test]
+async fn admin_invitations_require_authentication() {
+    let response = get("/admin/invitations").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
+async fn invite_page_is_public_and_neutral_for_bad_tokens() {
+    let response = get("/invite/not-a-real-token").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+    assert!(html.contains("Invitation not valid"));
 }

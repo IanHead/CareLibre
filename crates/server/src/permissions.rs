@@ -226,6 +226,21 @@ impl CapabilitySet {
     }
 
     #[must_use]
+    pub const fn is_subset_of(self, other: Self) -> bool {
+        self.0 & !other.0 == 0
+    }
+
+    #[must_use]
+    pub fn contains_all<I>(self, capabilities: I) -> bool
+    where
+        I: IntoIterator<Item = Capability>,
+    {
+        capabilities
+            .into_iter()
+            .all(|capability| self.contains(capability))
+    }
+
+    #[must_use]
     pub fn len(self) -> usize {
         self.0.count_ones() as usize
     }

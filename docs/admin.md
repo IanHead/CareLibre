@@ -39,6 +39,7 @@ cookie is replayed.
 | `/admin/schema` | Database explorer (see below) |
 | `/admin/custom-fields` | User-defined fields for every object (`custom_fields.manage`) |
 | `/admin/users/{id}/access` | Assign one or more permission sets to a user |
+| `/admin/invitations` | Create, inspect and revoke one-time invitation links (`users.manage`) |
 
 All pages are organisation-scoped: queries bind `organisation_id` from the
 resolved session, never from the URL.

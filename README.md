@@ -130,6 +130,8 @@ docs/           architecture, ADRs, admin, roadmap
   guarded delete (see [`docs/custom-fields.md`](docs/custom-fields.md))
 - capability-based permission sets with seven OOTB personas and per-user
   assignment (see [`docs/permissions.md`](docs/permissions.md))
+- one-time invitation links carrying permission sets (see
+  [`docs/invitations.md`](docs/invitations.md))
 
 See [`docs/admin.md`](docs/admin.md) for access rules and security notes.
 The planned first-run experience is described in

@@ -4,6 +4,24 @@ One-time shareable links for adding users. No email delivery is required for the
 server to be useful: the administrator copies the link and sends it through
 whatever channel they already trust.
 
+## Implementation status
+
+Implemented:
+
+- `/admin/invitations` list, create and revoke (`users.manage`);
+- public `/invite/<token>` acceptance with password creation and auto sign-in;
+- SHA-256 hashed tokens, single-use, expiry, revocation and audit entries;
+- permission sets applied at acceptance, and inviters cannot grant capabilities
+  they do not hold (owners exempt);
+- `Cache-Control: no-store` and `Referrer-Policy: no-referrer` on invite pages.
+
+Not yet implemented:
+
+- email delivery and reminders;
+- accepting as an existing signed-in account;
+- rate limiting per IP/token;
+- REST API endpoints (the admin UI uses server-rendered routes).
+
 ## Why links rather than email
 
 - Self-hosted Community Edition often has no SMTP configured; requiring email

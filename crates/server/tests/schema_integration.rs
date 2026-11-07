@@ -965,3 +965,115 @@ async fn permission_sets_cannot_cross_tenants() {
 
     tx.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn invitations_are_single_use_and_tenant_scoped() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let organisation = create_organisation(&mut tx).await;
+    let owner = create_user(&mut tx, organisation, "inviter", true).await;
+    let set = set_id(&mut tx, organisation, "house_manager").await;
+
+    let first = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO invitations
+            (id, organisation_id, email, token_hash, expires_at, created_by)
+         VALUES ($1, $2, 'invitee@example.com', 'hash-one', now() + interval '7 days', $3)",
+    )
+    .bind(first)
+    .bind(organisation)
+    .bind(owner)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO invitation_permission_sets
+            (organisation_id, invitation_id, permission_set_id)
+         VALUES ($1, $2, $3)",
+    )
+    .bind(organisation)
+    .bind(first)
+    .bind(set)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    // Second pending invitation for the same email is rejected.
+    sqlx::query("SAVEPOINT duplicate_invite")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let duplicate = sqlx::query(
+        "INSERT INTO invitations
+            (id, organisation_id, email, token_hash, expires_at)
+         VALUES ($1, $2, 'INVITEE@example.com', 'hash-two', now() + interval '7 days')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .execute(&mut *tx)
+    .await;
+    assert!(duplicate.is_err(), "one pending invitation per email");
+    sqlx::query("ROLLBACK TO SAVEPOINT duplicate_invite")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // Once accepted, the email can be invited again.
+    sqlx::query("UPDATE invitations SET accepted_at = now(), accepted_user_id = $2 WHERE id = $1")
+        .bind(first)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO invitations
+            (id, organisation_id, email, token_hash, expires_at)
+         VALUES ($1, $2, 'invitee@example.com', 'hash-three', now() + interval '7 days')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .execute(&mut *tx)
+    .await
+    .expect("accepted invitation frees the email");
+
+    // Invitation sets cannot cross tenants.
+    let other_organisation = create_organisation(&mut tx).await;
+    let other_set = set_id(&mut tx, other_organisation, "house_manager").await;
+    let third = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO invitations
+            (id, organisation_id, email, token_hash, expires_at)
+         VALUES ($1, $2, 'third@example.com', 'hash-four', now() + interval '7 days')",
+    )
+    .bind(third)
+    .bind(organisation)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    sqlx::query("SAVEPOINT cross_tenant_set")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let cross = sqlx::query(
+        "INSERT INTO invitation_permission_sets
+            (organisation_id, invitation_id, permission_set_id)
+         VALUES ($1, $2, $3)",
+    )
+    .bind(organisation)
+    .bind(third)
+    .bind(other_set)
+    .execute(&mut *tx)
+    .await;
+    assert!(cross.is_err(), "invitation sets are tenant-scoped");
+    sqlx::query("ROLLBACK TO SAVEPOINT cross_tenant_set")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    tx.rollback().await.unwrap();
+}

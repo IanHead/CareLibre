@@ -279,7 +279,7 @@ half-linked relationships.
 | Capability | Needed for | Status |
 |---|---|---|
 | Contact/division/service/rate CRUD screens or API | most auto tasks | **not built** |
-| Invitation links | `access.second_admin`, `access.team` | **designed, not built** ([invitations.md](invitations.md)) |
+| Invitation links | `access.second_admin`, `access.team` | **built** ([invitations.md](invitations.md)) |
 | CSV import + templates | migration mode, `people.import` | **designed, not built** ([import.md](import.md)) |
 | Configurable permission sets | `access.roles`, scoped personas | **Phase 1 built** ([permissions.md](permissions.md)) |
 | Restore verification guide | `security.backups` | docs only |

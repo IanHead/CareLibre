@@ -10,6 +10,7 @@ pub mod csrf;
 pub mod custom_fields;
 pub mod erd;
 pub mod html;
+pub mod invitations;
 pub mod pages;
 pub mod permission_sets;
 pub mod schema;
@@ -56,4 +57,10 @@ pub fn router() -> Router<AppState> {
             "/users/{user_id}/access",
             get(pages::user_access).post(pages::update_user_access),
         )
+        .route(
+            "/invitations",
+            get(invitations::list).post(invitations::create),
+        )
+        .route("/invitations/new", get(invitations::new_form))
+        .route("/invitations/{id}/revoke", post(invitations::revoke))
 }

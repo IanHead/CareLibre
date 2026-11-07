@@ -50,6 +50,7 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         let capabilities = who.capabilities;
         if capabilities.contains(crate::permissions::Capability::UsersManage) {
             out.push_str(&nav_item("/admin/users", "Users", active));
+            out.push_str(&nav_item("/admin/invitations", "Invitations", active));
             out.push_str(&nav_item("/admin/sessions", "Sessions", active));
         } else if capabilities.contains(crate::permissions::Capability::AuditRead) {
             out.push_str(&nav_item("/admin/sessions", "Sessions", active));

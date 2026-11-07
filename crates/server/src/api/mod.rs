@@ -22,6 +22,10 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(status::index))
         .route("/healthz", get(health::liveness))
         .route("/readyz", get(health::readiness))
+        .route(
+            "/invite/{token}",
+            get(crate::admin::invitations::accept_form).post(crate::admin::invitations::accept),
+        )
         .nest("/admin", crate::admin::router())
         .nest("/api/v1", v1_routes())
         .with_state(state);
