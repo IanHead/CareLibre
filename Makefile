@@ -22,6 +22,9 @@ test: ## Run unit and integration tests
 test-db: ## Run schema integration tests (requires DATABASE_URL)
 	$(CARGO) test --workspace -- --ignored
 
+seed-demo: ## Seed the Blue Dreams Care demo dataset (development only)
+	$(CARGO) run -p carelibre-server --bin seed-demo -- --confirm
+
 fmt: ## Format the code
 	$(CARGO) fmt --all
 

@@ -25,6 +25,8 @@ separate repositories and talk to this server over HTTP.
 
 See [`docs/adr/`](docs/adr/) for the decisions and their trade-offs.
 The domain schema is described in [`docs/data-model.md`](docs/data-model.md).
+A repeatable demo dataset is described in [`docs/demo-data.md`](docs/demo-data.md)
+(`make seed-demo`).
 
 Connecting the desktop/mobile clients: [`docs/connecting-clients.md`](docs/connecting-clients.md).
 
