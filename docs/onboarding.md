@@ -52,6 +52,22 @@ a migrating provider should not be asked to hand-key 400 contacts first.
 Stages 1–6 are the minimum useful product. Stages 7–8 can be deferred but must
 stay visible so nobody thinks setup is finished when it is not.
 
+### Migration mode
+
+When the operator chooses "I am migrating from another system", the People and
+Catalogue stages expand:
+
+1. Download the templates and specs (`/admin/import`).
+2. Import divisions and cost centres.
+3. Import organisations, contacts and relationships.
+4. Import services, rates and rate versions.
+5. Reconcile counts against the source system.
+6. Run a pilot shift with imported data.
+7. Keep the old system read-only for a parallel period, then cut over.
+
+Fresh-start providers see the same stages but with manual entry as the primary
+action and import marked optional.
+
 ## Task catalogue
 
 `A` = detected automatically from data, `M` = operator marks done.
@@ -70,6 +86,7 @@ Required tasks count towards "ready to go live".
 |---|---|---|---|---|---|
 | `access.second_admin` | Add a second owner or administrator | A | yes | owner | Detected as two active owners or Administrator-set holders |
 | `access.roles` | Review personas and assign permission sets | M | yes | owner | Seven OOTB personas; see [`permissions.md`](permissions.md) |
+| `access.team` | Invite the rest of the team | A | no | owner/admin | Detected as more than the initial admin; one-time links |
 | `security.production` | Confirm production settings | M | yes | owner | `APP_ENV=production`, unique JWT secret, TLS, no default secrets |
 | `security.backups` | Verify database backups | M | yes | owner | Test a restore, not just a schedule |
 
@@ -262,8 +279,8 @@ half-linked relationships.
 | Capability | Needed for | Status |
 |---|---|---|
 | Contact/division/service/rate CRUD screens or API | most auto tasks | **not built** |
-| Invitation flow (email or token) | `access.second_admin` | **not built** |
-| CSV import | migration mode, `people.import` | **not built** |
+| Invitation links | `access.second_admin`, `access.team` | **designed, not built** ([invitations.md](invitations.md)) |
+| CSV import + templates | migration mode, `people.import` | **designed, not built** ([import.md](import.md)) |
 | Configurable permission sets | `access.roles`, scoped personas | **designed, not built** ([permissions.md](permissions.md)) |
 | Restore verification guide | `security.backups` | docs only |
 | Accounting/SMS integrations | stage 7 | **not built** |
@@ -331,8 +348,11 @@ dead links, which is worse than no checklist.
 
 1. ~~**Permission sets:** fixed roles or configurable?~~ **Resolved:** configurable
    capability sets with seven OOTB personas; see [`permissions.md`](permissions.md).
-2. **Invitations:** email delivery or shareable one-time link? (Email needs SMTP
-   configuration; a link works for self-hosted setups immediately.)
-3. **Import scope:** CSV first, or direct connectors (Xero/QuickBooks) as an
-   alternative path? (Recommendation: CSV first; connectors later.)
-4. **Forced vs optional:** confirm the non-blocking banner approach.
+2. ~~**Invitations:** email delivery or shareable one-time link?~~ **Resolved:**
+   one-time shareable link, shown once and hashed at rest; see
+   [`invitations.md`](invitations.md) and ADR 0009.
+3. ~~**Import scope:** CSV first or connectors?~~ **Resolved:** CSV first with
+   downloadable templates and column specs; connectors later reuse the pipeline.
+   See [`import.md`](import.md) and ADR 0010.
+4. ~~**Forced vs optional:**~~ **Resolved:** non-blocking banner and sidebar
+   badge, no forced first-run wizard.

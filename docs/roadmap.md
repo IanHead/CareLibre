@@ -22,6 +22,7 @@ slices: each phase ships schema, API, tests and docs together.
 - Pagination, filtering and sorting conventions
 - Request IDs and structured audit for every mutation
 - Onboarding checklist and dashboard (see [`onboarding.md`](onboarding.md))
+- One-time invitation links and CSV import with templates
 - PostgreSQL row-level security across tenants
 - Metrics endpoint (Prometheus)
 

@@ -12,6 +12,8 @@ Short, dated records of decisions that are expensive to reverse.
 | [0006](0006-unified-organisations.md) | Unified organisations and user access | Accepted |
 | [0007](0007-custom-fields.md) | Custom fields are metadata, never schema | Accepted |
 | [0008](0008-permission-sets.md) | Configurable permission sets with capability checks | Accepted |
+| [0009](0009-invitation-links.md) | One-time invitation links | Accepted |
+| [0010](0010-csv-import.md) | CSV import with published templates and specs | Accepted |
 
 ## Adding an ADR
 
