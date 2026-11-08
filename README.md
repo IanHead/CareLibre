@@ -171,6 +171,11 @@ docs/           architecture, ADRs, admin, roadmap
 
 ## Administration
 
+![CareLibre admin dashboard](docs/assets/admin-dashboard.png)
+
+*The admin dashboard is for server and organisation administration; day-to-day
+care work happens in the desktop client.*
+
 `/admin` is a server-rendered admin area for owners and administrators:
 
 - dashboard with user/session counts and recent audit events
