@@ -4,14 +4,22 @@ The server for **CareLibre**, an open-source care management platform for
 Australian disability (NDIS) and aged care providers.
 
 This repository contains the backend only: a REST API, PostgreSQL schema and
-deployment tooling. The desktop (Rust/egui), Android and iOS clients live in
-separate repositories and talk to this server over HTTP.
+deployment tooling. It is designed to be used with the
+[CareLibre Desktop](https://github.com/IanHead/CareLibre-Desktop) client
+(Rust/egui); Android and iOS clients are planned and would use the same HTTP API.
 
 > **Status: early development.** Authentication, multi-tenancy, the care model,
 > relationships, rostering APIs and the admin tooling are in place. Native
 > clients live in separate repositories. This is a one-maintainer project: the
 > interfaces are usable, but expect them to change as the design settles. See
 > [`docs/roadmap.md`](docs/roadmap.md) for what is done and what is next.
+
+## Desktop client
+
+[CareLibre Desktop](https://github.com/IanHead/CareLibre-Desktop) is the primary
+client. Day-to-day care work — opening records, managing relationships and
+rostering — happens there, not in the web admin. Point the desktop app at this
+server's base URL and sign in with an organisation account.
 
 ## What CareLibre is trying to do differently
 
