@@ -135,6 +135,29 @@ either direction. A contact with both is dual role; one with neither is
 and as the `role` list filter (`client`, `worker`, `dual`, `other`, `all`).
 Make someone a client or worker by adding the relationship; end it to stop.
 
+### Relationships over time
+
+Relationships are never edited silently or deleted. Each change is one of:
+
+| Action | Use it when | Effect |
+|---|---|---|
+| Add | Something starts | New row; history starts with `added` |
+| End | Offboarded, moved away, plan ended | Sets `end_date` (may be future) and a required `end_reason` |
+| Transfer | Another party takes over | Ends the row the day before and starts a copy with the new party, linked by `previous_id` |
+| Change role | Family member becomes guardian | Same, with new roles |
+| Correct | It was recorded wrongly | Updates in place; recorded as `corrected` with before/after |
+| Remove | It was never true | Sets `removed_at` and hides it everywhere; needs `relationships.remove` (administrators by default) |
+
+End reasons: `offboarded`, `moved_away`, `plan_ended`, `deceased`,
+`changed_provider`, `circumstances_changed`, `incident`, `other`.
+
+`relationship_events` is the append-only history (who, when, why, before and
+after); every action also writes a summary to `audit_log`. Notes on `incident`
+events are returned only to holders of `relationships.incident_notes` (senior
+management and house managers by default); others see that a note exists.
+Ended relationships stay in `GET /relationships` with `status = "ended"` but
+are left out of the network graph and of `contact_care_roles`.
+
 ## Organisations and branding
 
 - `organisations` holds every organisation. The tenant root is `tenant_id = id`

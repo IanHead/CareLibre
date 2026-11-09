@@ -39,10 +39,12 @@ pub enum Capability {
     IntegrationsManage = 28,
     CommsManage = 29,
     SchemaView = 30,
+    RelationshipsRemove = 31,
+    RelationshipsIncidentNotes = 32,
 }
 
 impl Capability {
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 33] = [
         Self::ContactsRead,
         Self::ContactsWrite,
         Self::RelationshipsRead,
@@ -74,6 +76,8 @@ impl Capability {
         Self::IntegrationsManage,
         Self::CommsManage,
         Self::SchemaView,
+        Self::RelationshipsRemove,
+        Self::RelationshipsIncidentNotes,
     ];
 
     #[must_use]
@@ -110,6 +114,8 @@ impl Capability {
             Self::IntegrationsManage => "integrations.manage",
             Self::CommsManage => "comms.manage",
             Self::SchemaView => "schema.view",
+            Self::RelationshipsRemove => "relationships.remove",
+            Self::RelationshipsIncidentNotes => "relationships.incident_notes",
         }
     }
 
@@ -147,6 +153,8 @@ impl Capability {
             Self::IntegrationsManage => "Manage integrations",
             Self::CommsManage => "Manage communications",
             Self::SchemaView => "View schema",
+            Self::RelationshipsRemove => "Remove relationships",
+            Self::RelationshipsIncidentNotes => "View incident notes",
         }
     }
 
@@ -157,6 +165,8 @@ impl Capability {
             | Self::ContactsWrite
             | Self::RelationshipsRead
             | Self::RelationshipsWrite
+            | Self::RelationshipsRemove
+            | Self::RelationshipsIncidentNotes
             | Self::OrganisationsRead
             | Self::OrganisationsWrite => "People",
             Self::DivisionsRead

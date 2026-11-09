@@ -69,8 +69,19 @@ fn v1_routes() -> Router<AppState> {
         .route("/relationships/graph", get(relationships::graph))
         .route(
             "/relationships/{id}",
-            axum::routing::delete(relationships::delete),
+            axum::routing::patch(relationships::correct),
         )
+        .route("/relationships/{id}/history", get(relationships::history))
+        .route("/relationships/{id}/end", post(relationships::end))
+        .route(
+            "/relationships/{id}/transfer",
+            post(relationships::transfer),
+        )
+        .route(
+            "/relationships/{id}/change-role",
+            post(relationships::change_role),
+        )
+        .route("/relationships/{id}/remove", post(relationships::remove))
         .route(
             "/sites",
             get(rostering::list_sites).post(rostering::create_site),

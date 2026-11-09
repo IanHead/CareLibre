@@ -1843,6 +1843,8 @@ async fn insert_relationship(
               AND to_organisation_id IS NOT DISTINCT FROM $5
               AND from_role=$6
               AND to_role=$7
+              AND removed_at IS NULL
+              AND (end_date IS NULL OR end_date >= CURRENT_DATE)
         )",
     )
     .bind(organisation)
@@ -1864,8 +1866,9 @@ async fn insert_relationship(
         "INSERT INTO relationships
             (id, organisation_id, from_contact_id, from_organisation_id,
              to_contact_id, to_organisation_id, from_role, to_role,
-             start_date, end_date, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+             start_date, end_date, end_reason, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+                 CASE WHEN $10::date IS NULL THEN NULL ELSE 'other' END, $11)",
     )
     .bind(Uuid::now_v7())
     .bind(organisation)

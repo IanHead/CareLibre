@@ -55,8 +55,22 @@ pub struct RelationshipEdge {
     pub to_role: String,
     pub start_date: Option<NaiveDate>,
     pub end_date: Option<NaiveDate>,
+    /// Why the relationship ends; set whenever `end_date` is.
+    pub end_reason: Option<String>,
+    /// `current`, `upcoming` (starts later) or `ended`.
+    pub status: String,
+    /// The relationship this one replaced through a transfer or role change.
+    pub previous_id: Option<Uuid>,
     pub notes: Option<String>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl RelationshipEdge {
+    /// True unless the relationship has already ended.
+    #[must_use]
+    pub fn is_ended(&self) -> bool {
+        self.status == "ended"
+    }
 }
 
 /// A party in the graph. `degree` counts incident relationships.
@@ -127,6 +141,9 @@ struct EdgeRow {
     to_role: String,
     start_date: Option<NaiveDate>,
     end_date: Option<NaiveDate>,
+    end_reason: Option<String>,
+    status: String,
+    previous_id: Option<Uuid>,
     notes: Option<String>,
     updated_at: DateTime<Utc>,
 }
@@ -143,6 +160,11 @@ SELECT r.id,
        r.to_role,
        r.start_date,
        r.end_date,
+       r.end_reason,
+       CASE WHEN r.end_date < CURRENT_DATE THEN 'ended'
+            WHEN r.start_date > CURRENT_DATE THEN 'upcoming'
+            ELSE 'current' END AS status,
+       r.previous_id,
        r.notes,
        r.updated_at
 FROM relationships r
@@ -155,9 +177,11 @@ LEFT JOIN contacts tc
 LEFT JOIN organisations to_org
        ON to_org.tenant_id = r.organisation_id AND to_org.id = r.to_organisation_id
 WHERE r.organisation_id = $1
+  AND r.removed_at IS NULL
 ";
 
-/// Load every relationship for a tenant, with names and both roles.
+/// Load every relationship for a tenant, with names and both roles. Removed
+/// relationships (recorded in error) are excluded; ended ones are included.
 pub async fn load_edges(
     db: &PgPool,
     organisation_id: Uuid,
@@ -201,6 +225,9 @@ fn edge_from_row(row: EdgeRow) -> RelationshipEdge {
         to_role: row.to_role,
         start_date: row.start_date,
         end_date: row.end_date,
+        end_reason: row.end_reason,
+        status: row.status,
+        previous_id: row.previous_id,
         notes: row.notes,
         updated_at: row.updated_at,
     }
@@ -370,6 +397,9 @@ mod tests {
             to_role: "patient".to_owned(),
             start_date: None,
             end_date: None,
+            end_reason: None,
+            status: "current".to_owned(),
+            previous_id: None,
             notes: None,
             updated_at: Utc::now(),
         }

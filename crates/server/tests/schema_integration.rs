@@ -437,9 +437,9 @@ async fn clients_and_workers_come_from_relationships_with_the_organisation() {
     sqlx::query(
         "INSERT INTO relationships
             (id, organisation_id, from_contact_id, to_organisation_id, from_role, to_role,
-             start_date, end_date)
+             start_date, end_date, end_reason)
          VALUES ($1, $2, $3, $2, 'care_recipient', 'provider',
-                 CURRENT_DATE - 30, CURRENT_DATE - 1)",
+                 CURRENT_DATE - 30, CURRENT_DATE - 1, 'plan_ended')",
     )
     .bind(Uuid::now_v7())
     .bind(tenant)
