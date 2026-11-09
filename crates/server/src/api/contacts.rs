@@ -47,6 +47,20 @@ pub struct ContactDto {
     pub details: Value,
     pub role: String,
     pub updated_at: DateTime<Utc>,
+    /// When a search matched one of this contact's relationship roles: the
+    /// role and who they hold it for. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship_match: Option<RelationshipMatchDto>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RelationshipMatchDto {
+    /// The role this contact holds, e.g. `support_coordinator`.
+    pub role: String,
+    /// Up to three people or organisations they hold it for.
+    pub with: Vec<String>,
+    /// How many they hold it for in total.
+    pub total: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,6 +154,13 @@ struct ContactRow {
 }
 
 #[derive(Debug, FromRow)]
+struct RoleMatchRow {
+    contact_id: Uuid,
+    role: String,
+    counterpart: String,
+}
+
+#[derive(Debug, FromRow)]
 struct CountsRow {
     all_count: i64,
     clients: i64,
@@ -228,8 +249,11 @@ pub async fn list(
         _ => counts.all_count,
     };
 
+    let mut items: Vec<ContactDto> = rows.into_iter().map(contact_dto).collect();
+    attach_relationship_matches(&state, auth.organisation_id, &search, &mut items).await?;
+
     Ok(Json(ContactListDto {
-        items: rows.into_iter().map(contact_dto).collect(),
+        items,
         total,
         counts: ContactCountsDto {
             all: counts.all_count,
@@ -442,6 +466,9 @@ async fn load_counts(
         .await?)
 }
 
+/// Name, email and phone match anywhere. A search also finds contacts by a
+/// role they currently hold toward someone else, so "Support Coordinator"
+/// lists everyone acting as one.
 fn push_search(query: &mut QueryBuilder<'_, Postgres>, search: &str) {
     if search.is_empty() {
         return;
@@ -453,7 +480,103 @@ fn push_search(query: &mut QueryBuilder<'_, Postgres>, search: &str) {
     query.push_bind(pattern.clone());
     query.push(" OR phone ILIKE ");
     query.push_bind(pattern);
+    if let Some((starts, word)) = role_patterns(search) {
+        query.push(
+            " OR EXISTS (
+                SELECT 1 FROM relationship_directions d
+                WHERE d.organisation_id = contacts.organisation_id
+                  AND d.subject_kind = 'contact' AND d.subject_id = contacts.id
+                  AND (d.end_date IS NULL OR d.end_date >= CURRENT_DATE)
+                  AND (d.subject_role ILIKE ",
+        );
+        query.push_bind(starts);
+        query.push(" OR d.subject_role ILIKE ");
+        query.push_bind(word);
+        query.push("))");
+    }
     query.push(")");
+}
+
+/// LIKE patterns matching a search at the start of a word in a stored role
+/// (`support_coordinator`): one for the start of the role, one after an
+/// underscore. Matching whole word starts keeps a name search like "Ian"
+/// from also returning every guardian.
+fn role_patterns(search: &str) -> Option<(String, String)> {
+    let words: Vec<String> = search
+        .split(|c: char| c.is_whitespace() || c == '-' || c == '_')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            word.to_lowercase()
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        })
+        .collect();
+    if words.is_empty() {
+        return None;
+    }
+    let term = words.join("\\_");
+    Some((format!("{term}%"), format!("%\\_{term}%")))
+}
+
+/// For contacts found through a relationship role, say which role and for whom.
+async fn attach_relationship_matches(
+    state: &AppState,
+    organisation_id: Uuid,
+    search: &str,
+    items: &mut [ContactDto],
+) -> Result<(), AppError> {
+    let Some((starts, word)) = role_patterns(search) else {
+        return Ok(());
+    };
+    if items.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<Uuid> = items.iter().map(|item| item.id).collect();
+    let rows = sqlx::query_as::<_, RoleMatchRow>(
+        "SELECT d.subject_id AS contact_id, d.subject_role AS role,
+                COALESCE(c.display_name, o.name, 'Unknown') AS counterpart
+         FROM relationship_directions d
+         LEFT JOIN contacts c
+                ON d.counterpart_kind = 'contact'
+               AND c.organisation_id = d.organisation_id AND c.id = d.counterpart_id
+         LEFT JOIN organisations o
+                ON d.counterpart_kind = 'organisation'
+               AND o.tenant_id = d.organisation_id AND o.id = d.counterpart_id
+         WHERE d.organisation_id = $1
+           AND d.subject_kind = 'contact' AND d.subject_id = ANY($2)
+           AND (d.end_date IS NULL OR d.end_date >= CURRENT_DATE)
+           AND (d.subject_role ILIKE $3 OR d.subject_role ILIKE $4)
+         ORDER BY d.subject_id, d.subject_role, lower(COALESCE(c.display_name, o.name))",
+    )
+    .bind(organisation_id)
+    .bind(&ids)
+    .bind(starts)
+    .bind(word)
+    .fetch_all(&state.db)
+    .await?;
+
+    for item in items.iter_mut() {
+        // The first matching role (alphabetically) and everyone it is held for.
+        let mut matched = rows.iter().filter(|row| row.contact_id == item.id);
+        let Some(first) = matched.next() else {
+            continue;
+        };
+        let mut with = vec![first.counterpart.clone()];
+        with.extend(
+            matched
+                .filter(|row| row.role == first.role)
+                .map(|row| row.counterpart.clone()),
+        );
+        let total = with.len();
+        with.truncate(3);
+        item.relationship_match = Some(RelationshipMatchDto {
+            role: first.role.clone(),
+            with,
+            total,
+        });
+    }
+    Ok(())
 }
 
 fn push_role(query: &mut QueryBuilder<'_, Postgres>, role: &str) {
@@ -499,6 +622,7 @@ fn contact_dto(row: ContactRow) -> ContactDto {
         details,
         role,
         updated_at: row.updated_at,
+        relationship_match: None,
     }
 }
 
@@ -644,4 +768,33 @@ fn trim_optional(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::role_patterns;
+
+    #[test]
+    fn role_search_matches_word_starts_of_stored_roles() {
+        assert_eq!(
+            role_patterns("Support Coordinator"),
+            Some((
+                r"support\_coordinator%".to_owned(),
+                r"%\_support\_coordinator%".to_owned()
+            ))
+        );
+        assert_eq!(
+            role_patterns(" plan-manager "),
+            Some((
+                r"plan\_manager%".to_owned(),
+                r"%\_plan\_manager%".to_owned()
+            ))
+        );
+        // LIKE wildcards typed by the user are taken literally.
+        assert_eq!(
+            role_patterns("50%"),
+            Some((r"50\%%".to_owned(), r"%\_50\%%".to_owned()))
+        );
+        assert_eq!(role_patterns("  -  "), None);
+    }
 }

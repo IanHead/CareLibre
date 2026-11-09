@@ -79,6 +79,13 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         if capabilities.contains(crate::permissions::Capability::RelationshipsRead) {
             data.push_str(&nav_item("/admin/relationships", "Relationships", active));
         }
+        if capabilities.contains(crate::permissions::Capability::RelationshipTypesManage) {
+            data.push_str(&nav_item(
+                "/admin/relationship-types",
+                "Relationship types",
+                active,
+            ));
+        }
         if capabilities.contains(crate::permissions::Capability::DataImport) {
             data.push_str(&nav_item("/admin/import", "Import", active));
         }

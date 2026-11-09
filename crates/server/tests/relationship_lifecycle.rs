@@ -22,7 +22,7 @@ use carelibre_server::{
     config::{Config, Environment},
     state::AppState,
 };
-use chrono::{Duration as Days, Utc};
+use chrono::{Duration as Days, NaiveDate, Utc};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -516,6 +516,238 @@ async fn removal_and_incident_notes_have_sensible_defaults() {
         .map(|(persona, capability)| (persona.as_str(), capability.as_str()))
         .collect();
     assert_eq!(holders, expected);
+
+    fx.cleanup().await;
+}
+
+fn names(list: &Value) -> Vec<String> {
+    list["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("not a contact list: {list}"))
+        .iter()
+        .map(|item| item["display_name"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn contacts_can_be_found_by_the_roles_they_hold() {
+    let mut fx = Fixture::new().await;
+    let intake = fx.member("intake").await;
+    let today = Utc::now().date_naive();
+
+    let ian = fx.contact("Ian Client").await;
+    let mia = fx.contact("Mia Client").await;
+    let coordinator = fx.contact("Corin Coordinator").await;
+    let former = fx.contact("Fern Former").await;
+    let guardian = fx.contact("Gina Keeper").await;
+
+    let link = |from: Uuid, from_role: &str, to: Uuid, to_role: &str, end: Option<NaiveDate>| {
+        json!({
+            "from_kind": "contact", "from_id": from, "from_role": from_role,
+            "to_kind": "contact", "to_id": to, "to_role": to_role,
+            "start_date": null, "end_date": end,
+            "end_reason": end.map(|_| "changed_provider"), "notes": null
+        })
+    };
+    for body in [
+        link(ian, "participant", coordinator, "support_coordinator", None),
+        link(mia, "participant", coordinator, "support_coordinator", None),
+        link(
+            ian,
+            "participant",
+            former,
+            "support_coordinator",
+            Some(today - Days::days(1)),
+        ),
+        link(ian, "person_supported", guardian, "guardian", None),
+    ] {
+        let (status, body) = fx
+            .call(&intake, Method::POST, "/api/v1/relationships", Some(body))
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+    }
+
+    let search = |term: &str| format!("/api/v1/contacts?search={}", term.replace(' ', "%20"));
+
+    // Current support coordinators only, with who they coordinate for.
+    let (_, found) = fx
+        .call(&intake, Method::GET, &search("Support Coordinator"), None)
+        .await;
+    assert_eq!(names(&found), ["Corin Coordinator"]);
+    let matched = &found["items"][0]["relationship_match"];
+    assert_eq!(matched["role"], "support_coordinator");
+    assert_eq!(matched["with"], json!(["Ian Client", "Mia Client"]));
+    assert_eq!(matched["total"], 2);
+    assert_eq!(found["counts"]["all"], 1, "counts follow the search");
+
+    // Any word of the role, and its other side.
+    let (_, found) = fx
+        .call(&intake, Method::GET, &search("coordinator"), None)
+        .await;
+    assert_eq!(names(&found), ["Corin Coordinator"]);
+    let (_, found) = fx
+        .call(&intake, Method::GET, &search("participant"), None)
+        .await;
+    assert_eq!(names(&found), ["Ian Client", "Mia Client"]);
+
+    // A name inside a role ("guard-ian") is not a role match.
+    let (_, found) = fx.call(&intake, Method::GET, &search("Ian"), None).await;
+    assert_eq!(names(&found), ["Ian Client"]);
+    assert!(found["items"][0].get("relationship_match").is_none());
+
+    fx.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn roles_come_from_the_relationship_type_catalogue() {
+    let mut fx = Fixture::new().await;
+    let admin = fx.member("administrator").await;
+    let intake = fx.member("intake").await;
+    let client = fx.contact("Cat Client").await;
+    let doctor = fx.contact("Doc Holder").await;
+
+    // A new organisation starts with the standard catalogue.
+    let (status, types) = fx
+        .call(&intake, Method::GET, "/api/v1/relationship-types", None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let items = types["items"].as_array().unwrap();
+    let has = |a: &str, b: &str| {
+        items
+            .iter()
+            .any(|t| t["from_role"] == a && t["to_role"] == b)
+    };
+    assert!(has("patient", "general_practitioner"));
+    assert!(has("mother", "daughter"));
+    assert!(has("care_recipient", "provider"));
+
+    let link = |from_role: &str, to_role: &str| {
+        json!({
+            "from_kind": "contact", "from_id": client, "from_role": from_role,
+            "to_kind": "contact", "to_id": doctor, "to_role": to_role,
+            "start_date": null, "end_date": null, "end_reason": null, "notes": null
+        })
+    };
+
+    // Typo'd or unknown roles are rejected; a pair works either way round.
+    let (status, _) = fx
+        .call(
+            &intake,
+            Method::POST,
+            "/api/v1/relationships",
+            Some(link("patient", "gp")),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, body) = fx
+        .call(
+            &intake,
+            Method::POST,
+            "/api/v1/relationships",
+            Some(link("general_practitioner", "patient")),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let relationship = body["id"].as_str().unwrap().to_owned();
+
+    // Only administrators manage the catalogue. Typed roles are normalised,
+    // and the same pair cannot be added twice in either direction.
+    let new_type = json!({ "from_role": "Patient", "to_role": "Dentist", "category": "health" });
+    let (status, _) = fx
+        .call(
+            &intake,
+            Method::POST,
+            "/api/v1/relationship-types",
+            Some(new_type.clone()),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, dentist) = fx
+        .call(
+            &admin,
+            Method::POST,
+            "/api/v1/relationship-types",
+            Some(new_type),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{dentist}");
+    assert_eq!(dentist["from_role"], "patient");
+    assert_eq!(dentist["to_role"], "dentist");
+    let (status, _) = fx
+        .call(
+            &admin,
+            Method::POST,
+            "/api/v1/relationship-types",
+            Some(json!({ "from_role": "dentist", "to_role": "patient", "category": "health" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // Retired types cannot be chosen again...
+    let gp = items
+        .iter()
+        .find(|t| t["from_role"] == "patient" && t["to_role"] == "general_practitioner")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (status, _) = fx
+        .call(
+            &admin,
+            Method::PATCH,
+            &format!("/api/v1/relationship-types/{gp}"),
+            Some(json!({ "is_active": false })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = fx
+        .call(
+            &intake,
+            Method::POST,
+            &format!("/api/v1/relationships/{relationship}/change-role"),
+            Some(json!({
+                "effective_date": Utc::now().date_naive(), "from_role": "general_practitioner",
+                "to_role": "patient", "reason": "other", "note": null
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "same roles");
+
+    // ...but relationships already using them can still be corrected.
+    let (status, body) = fx
+        .call(
+            &intake,
+            Method::PATCH,
+            &format!("/api/v1/relationships/{relationship}"),
+            Some(json!({
+                "from_kind": "contact", "from_id": client, "from_role": "general_practitioner",
+                "to_kind": "contact", "to_id": doctor, "to_role": "patient",
+                "start_date": null, "end_date": null, "end_reason": null,
+                "notes": "Seen yearly.", "note": "Added a note."
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, _) = fx
+        .call(
+            &intake,
+            Method::POST,
+            "/api/v1/relationships",
+            Some(link("patient", "general_practitioner")),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "retired");
+    let (status, body) = fx
+        .call(
+            &intake,
+            Method::POST,
+            "/api/v1/relationships",
+            Some(link("patient", "dentist")),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
 
     fx.cleanup().await;
 }

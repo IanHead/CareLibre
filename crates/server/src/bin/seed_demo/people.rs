@@ -1595,6 +1595,18 @@ impl<'a, 'c> People<'a, 'c> {
             .execute(&mut **self.tx)
             .await?;
         }
+        // Every pair used must be in the organisation's catalogue so it can
+        // be chosen, changed and corrected like any other.
+        sqlx::query(
+            "INSERT INTO relationship_types (id, organisation_id, from_role, to_role)
+             SELECT gen_random_uuid(), organisation_id, from_role, to_role
+             FROM relationships
+             WHERE organisation_id = $1
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(self.organisation)
+        .execute(&mut **self.tx)
+        .await?;
         Ok(())
     }
 

@@ -135,6 +135,28 @@ either direction. A contact with both is dual role; one with neither is
 and as the `role` list filter (`client`, `worker`, `dual`, `other`, `all`).
 Make someone a client or worker by adding the relationship; end it to stop.
 
+### Relationship types
+
+Roles are never free text. Each organisation keeps a catalogue of allowed role
+pairs in `relationship_types` (for example `patient`/`general_practitioner`,
+`mother`/`son`, `participant`/`support_coordinator`), grouped as care, family,
+health, services, work or other. A relationship may use a pair in either
+direction. Creating a relationship, changing its roles, correcting its roles
+and importing relationships all require an active pair; otherwise the request
+fails with a validation error.
+
+New organisations start with a standard catalogue (including every gendered
+family combination), and migration 0021 added every pair already in use.
+Holders of `relationship_types.manage` (administrators by default) add pairs
+and retire ones no longer wanted, through `/admin/relationship-types` or
+`GET`/`POST /api/v1/relationship-types` and `PATCH /api/v1/relationship-types/{id}`.
+Retired pairs stay on existing relationships and can still be corrected, but
+cannot be chosen again. Typed roles are normalised, so "Support Coordinator"
+becomes `support_coordinator`.
+
+Contact search also matches the roles a contact currently holds toward
+others, so searching "Support Coordinator" lists everyone acting as one.
+
 ### Relationships over time
 
 Relationships are never edited silently or deleted. Each change is one of:

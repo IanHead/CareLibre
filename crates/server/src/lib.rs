@@ -14,6 +14,7 @@ pub mod import;
 pub mod onboarding;
 pub mod organisation;
 pub mod permissions;
+pub mod relationship_types;
 pub mod relationships;
 pub mod rostering;
 pub mod state;

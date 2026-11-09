@@ -5,6 +5,7 @@ pub mod contacts;
 pub mod health;
 pub mod openapi;
 pub mod organisation;
+pub mod relationship_types;
 pub mod relationships;
 pub mod rostering;
 pub mod status;
@@ -67,6 +68,14 @@ fn v1_routes() -> Router<AppState> {
             get(relationships::list).post(relationships::create),
         )
         .route("/relationships/graph", get(relationships::graph))
+        .route(
+            "/relationship-types",
+            get(relationship_types::list).post(relationship_types::create),
+        )
+        .route(
+            "/relationship-types/{id}",
+            axum::routing::patch(relationship_types::update),
+        )
         .route(
             "/relationships/{id}",
             axum::routing::patch(relationships::correct),

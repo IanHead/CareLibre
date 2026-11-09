@@ -1833,6 +1833,9 @@ async fn insert_relationship(
 
     let from_role = value(row, "from_role");
     let to_role = value(row, "to_role");
+    crate::relationship_types::ensure_allowed(&mut **tx, organisation, from_role, to_role)
+        .await
+        .map_err(|error| error.to_string())?;
     let duplicate: bool = sqlx::query_scalar(
         "SELECT EXISTS(
             SELECT 1 FROM relationships

@@ -17,6 +17,7 @@ pub mod onboarding;
 pub mod organisation;
 pub mod pages;
 pub mod permission_sets;
+pub mod relationship_types;
 pub mod schema;
 
 use axum::{
@@ -48,6 +49,14 @@ pub fn router() -> Router<AppState> {
         )
         .route("/organisation/logo/delete", post(organisation::delete_logo))
         .route("/relationships", get(network::page))
+        .route(
+            "/relationship-types",
+            get(relationship_types::list).post(relationship_types::add),
+        )
+        .route(
+            "/relationship-types/{id}/active",
+            post(relationship_types::set_active),
+        )
         .route("/schema", get(schema::page))
         .route(
             "/custom-fields",

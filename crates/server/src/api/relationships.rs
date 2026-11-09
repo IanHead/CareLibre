@@ -34,6 +34,7 @@ use crate::{
     auth::extractor::AuthContext,
     error::{AppError, ErrorBody},
     permissions::Capability,
+    relationship_types,
     relationships::{
         ego_graph, filter_edges, load_edge, load_edges, whole_graph, NodeKey, PartyKind,
         RelationshipEdge, RelationshipGraph,
@@ -416,6 +417,13 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<RelationshipEdge>), AppError> {
     auth.require(Capability::RelationshipsWrite)?;
     let write = validate_write(&state.db, auth.organisation_id, &payload).await?;
+    relationship_types::ensure_allowed(
+        &state.db,
+        auth.organisation_id,
+        &write.from_role,
+        &write.to_role,
+    )
+    .await?;
     ensure_not_duplicate(&state.db, auth.organisation_id, &write, None).await?;
 
     let mut tx = begin_as(&state, &auth).await?;
@@ -629,6 +637,17 @@ pub async fn correct(
         .ok_or_else(|| AppError::validation("explain what was wrong in the note"))?;
     let edge = load_existing(&state.db, auth.organisation_id, id).await?;
     let write = validate_write(&state.db, auth.organisation_id, &payload.relationship).await?;
+    // A retired type may stay on a relationship, but changed roles must be
+    // in the catalogue.
+    if write.from_role != edge.from_role || write.to_role != edge.to_role {
+        relationship_types::ensure_allowed(
+            &state.db,
+            auth.organisation_id,
+            &write.from_role,
+            &write.to_role,
+        )
+        .await?;
+    }
 
     let before = snapshot(&edge);
     let after = write_snapshot(&write);
@@ -862,6 +881,15 @@ async fn succeed(
     next.end_date = None;
     next.end_reason = None;
     let write = validate_write(&state.db, auth.organisation_id, &next).await?;
+    if action == "role_changed" {
+        relationship_types::ensure_allowed(
+            &state.db,
+            auth.organisation_id,
+            &write.from_role,
+            &write.to_role,
+        )
+        .await?;
+    }
     ensure_not_duplicate(&state.db, auth.organisation_id, &write, None).await?;
 
     let mut tx = begin_as(state, auth).await?;
