@@ -101,9 +101,9 @@ and blocked).
 
 ## Notes
 
-- Contact role hints live in `contacts.details.contact_role` (`client`, `worker`,
-  `dual`, `other`). They are hints for client views, not the source of truth;
-  relationships and assignments remain authoritative.
+- Every client is linked to Blue Dreams Care as `care_recipient`/`provider` and
+  every worker as `employee`/`employer`. Those relationships are what make a
+  contact a client or worker (see `contact_care_roles` in the data model).
 - `client_assignments` and `worker_assignments` are attached to a session when
   one exists, otherwise directly to the shift.
 - The seeder is a development utility, not part of the product surface.

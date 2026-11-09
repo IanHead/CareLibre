@@ -80,8 +80,9 @@ and combine them only when ranking workers.
 - More tables and views than a single weighted edge table.
 - Scores must be recomputed or cached; there is no single mutable "strength"
   column.
-- `contacts` remains untyped, so discovering who is a worker relies on the
-  `details.contact_role` hint or assignment history.
+- `contacts` remains untyped, so discovering who is a worker relies on an
+  `employee`/`employer` relationship with the organisation or assignment
+  history.
 - Explicit constraints require human maintenance; they are not learned.
 
 ## Alternatives rejected

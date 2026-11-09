@@ -1762,8 +1762,9 @@ pub async fn suitability(
     let candidates = sqlx::query_as::<_, ContactRow>(
         "SELECT c.id, c.display_name
          FROM contacts c
+         JOIN contact_care_roles roles ON roles.contact_id = c.id
          WHERE c.organisation_id=$1 AND c.is_active
-           AND (c.details->>'contact_role' IN ('worker', 'dual')
+           AND (roles.is_worker
                 OR EXISTS (
                     SELECT 1 FROM worker_assignments wa
                     WHERE wa.organisation_id=c.organisation_id AND wa.contact_id=c.id

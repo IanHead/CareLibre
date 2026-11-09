@@ -120,6 +120,21 @@ contact *is guardian of* another contact (`guardian`/`person supported`), and a
 health provider *is general practitioner of* a person
 (`general_practitioner`/`patient`).
 
+### Clients and workers
+
+Client and worker are not contact types. They are relationships with the
+organisation (the tenant root), read through the `contact_care_roles` view:
+
+- **Client:** the contact is `care_recipient` and the organisation is
+  `provider`.
+- **Worker:** the contact is `employee` and the organisation is `employer`.
+
+Only current relationships count (no `end_date`, or one today or later), in
+either direction. A contact with both is dual role; one with neither is
+"other". The contacts API exposes this as a read-only `role` on each contact
+and as the `role` list filter (`client`, `worker`, `dual`, `other`, `all`).
+Make someone a client or worker by adding the relationship; end it to stop.
+
 ## Organisations and branding
 
 - `organisations` holds every organisation. The tenant root is `tenant_id = id`

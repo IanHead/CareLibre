@@ -1,9 +1,10 @@
 //! Contacts API: list, detail, create and update, with custom-field metadata.
 //!
-//! Contacts are intentionally untyped on the server. The optional
-//! `details.contact_role` hint lets native clients offer client/worker views
-//! without changing the core model; relationships remain the source of truth
-//! for care roles.
+//! Contacts are intentionally untyped. Whether a contact is a client or a
+//! worker comes from its relationships with the organisation, via the
+//! `contact_care_roles` view: `care_recipient`/`provider` makes a client and
+//! `employee`/`employer` makes a worker. The derived `role` on each contact and
+//! the `role` list filter are read-only views of those relationships.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -134,6 +135,8 @@ struct ContactRow {
     is_active: bool,
     details: SqlJson<Value>,
     updated_at: DateTime<Utc>,
+    is_client: bool,
+    is_worker: bool,
 }
 
 #[derive(Debug, FromRow)]
@@ -185,7 +188,7 @@ pub async fn list(
     let counts = load_counts(&state, auth.organisation_id, &search).await?;
 
     let mut query = QueryBuilder::<Postgres>::new(CONTACT_SELECT);
-    query.push(" WHERE organisation_id = ");
+    query.push(" WHERE contacts.organisation_id = ");
     query.push_bind(auth.organisation_id);
     push_search(&mut query, &search);
     push_role(&mut query, &role);
@@ -354,9 +357,12 @@ pub async fn list_custom_fields(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Contacts joined with their relationship-derived client/worker flags.
 const CONTACT_SELECT: &str = "SELECT id, display_name, given_name, family_name, preferred_name,
-    pronouns, date_of_birth, email, phone, notes, is_active, details, updated_at
-    FROM contacts";
+    pronouns, date_of_birth, email, phone, notes, is_active, details, updated_at,
+    roles.is_client, roles.is_worker
+    FROM contacts
+    JOIN contact_care_roles roles ON roles.contact_id = contacts.id";
 
 async fn load_detail(
     state: &AppState,
@@ -364,7 +370,7 @@ async fn load_detail(
     id: Uuid,
 ) -> Result<ContactDetailDto, AppError> {
     let row = sqlx::query_as::<_, ContactRow>(&format!(
-        "{CONTACT_SELECT} WHERE id = $1 AND organisation_id = $2"
+        "{CONTACT_SELECT} WHERE contacts.id = $1 AND contacts.organisation_id = $2"
     ))
     .bind(id)
     .bind(organisation_id)
@@ -420,11 +426,13 @@ async fn load_counts(
 ) -> Result<CountsRow, AppError> {
     let mut query = QueryBuilder::<Postgres>::new(
         "SELECT COUNT(*) AS all_count,
-                COUNT(*) FILTER (WHERE details->>'contact_role' IN ('client','dual')) AS clients,
-                COUNT(*) FILTER (WHERE details->>'contact_role' IN ('worker','dual')) AS workers,
-                COUNT(*) FILTER (WHERE details->>'contact_role' = 'dual') AS dual,
-                COUNT(*) FILTER (WHERE details->>'contact_role' = 'other') AS other
-         FROM contacts WHERE organisation_id = ",
+                COUNT(*) FILTER (WHERE roles.is_client) AS clients,
+                COUNT(*) FILTER (WHERE roles.is_worker) AS workers,
+                COUNT(*) FILTER (WHERE roles.is_client AND roles.is_worker) AS dual,
+                COUNT(*) FILTER (WHERE NOT roles.is_client AND NOT roles.is_worker) AS other
+         FROM contacts
+         JOIN contact_care_roles roles ON roles.contact_id = contacts.id
+         WHERE contacts.organisation_id = ",
     );
     query.push_bind(organisation_id);
     push_search(&mut query, search);
@@ -451,16 +459,16 @@ fn push_search(query: &mut QueryBuilder<'_, Postgres>, search: &str) {
 fn push_role(query: &mut QueryBuilder<'_, Postgres>, role: &str) {
     match role {
         "client" => {
-            query.push(" AND details->>'contact_role' IN ('client','dual')");
+            query.push(" AND roles.is_client");
         }
         "worker" => {
-            query.push(" AND details->>'contact_role' IN ('worker','dual')");
+            query.push(" AND roles.is_worker");
         }
         "dual" => {
-            query.push(" AND details->>'contact_role' = 'dual'");
+            query.push(" AND roles.is_client AND roles.is_worker");
         }
         "other" => {
-            query.push(" AND details->>'contact_role' = 'other'");
+            query.push(" AND NOT roles.is_client AND NOT roles.is_worker");
         }
         _ => {}
     }
@@ -468,11 +476,13 @@ fn push_role(query: &mut QueryBuilder<'_, Postgres>, role: &str) {
 
 fn contact_dto(row: ContactRow) -> ContactDto {
     let details = row.details.0;
-    let role = details
-        .get("contact_role")
-        .and_then(Value::as_str)
-        .unwrap_or("contact")
-        .to_owned();
+    let role = match (row.is_client, row.is_worker) {
+        (true, true) => "dual",
+        (true, false) => "client",
+        (false, true) => "worker",
+        (false, false) => "other",
+    }
+    .to_owned();
 
     ContactDto {
         id: row.id,
@@ -514,10 +524,12 @@ fn validate_write(payload: &ContactWrite) -> Result<(String, Value, bool), AppEr
         ));
     }
 
-    let details = payload.details.clone().unwrap_or_else(|| json!({}));
-    if !details.is_object() {
+    let mut details = payload.details.clone().unwrap_or_else(|| json!({}));
+    let Some(fields) = details.as_object_mut() else {
         return Err(AppError::validation("details must be a JSON object"));
-    }
+    };
+    // Client and worker come from relationships; never store a role hint.
+    fields.remove("contact_role");
 
     Ok((display_name, details, payload.is_active.unwrap_or(true)))
 }

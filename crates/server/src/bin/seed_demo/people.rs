@@ -286,7 +286,6 @@ impl<'a, 'c> People<'a, 'c> {
                         nickname: false,
                         notes: format!("Contact at {name} (demo)."),
                         details: json!({
-                            "contact_role": "other",
                             "subtype": "external",
                             "organisation": name
                         }),
@@ -359,7 +358,6 @@ impl<'a, 'c> People<'a, 'c> {
                 nickname: false,
                 notes: format!("{} at {practice} (demo).", capitalise(&title)),
                 details: json!({
-                    "contact_role": "other",
                     "subtype": specialty,
                     "organisation": practice
                 }),
@@ -790,7 +788,6 @@ impl<'a, 'c> People<'a, 'c> {
         };
         let notes = format!("Lives in {}. {program} (demo).", home.suburb);
         let mut details = json!({
-            "contact_role": "client",
             "address": {
                 "line1": home.line1,
                 "suburb": home.suburb,
@@ -815,6 +812,14 @@ impl<'a, 'c> People<'a, 'c> {
             },
         )
         .await?;
+
+        // Being a client is a relationship: the organisation provides care.
+        self.link(
+            Party::Contact(person.id),
+            Party::Organisation(self.organisation),
+            "care_recipient",
+            "provider",
+        );
 
         if funding == Funding::Ndis {
             let ndis_number = format!("43{:07}", self.rng.gen_range(0..10_000_000u32));
@@ -1224,7 +1229,7 @@ impl<'a, 'c> People<'a, 'c> {
                     pronouns: None,
                     nickname: false,
                     notes: format!("{label} and emergency contact (demo)."),
-                    details: json!({ "contact_role": "other", "subtype": "emergency_contact" }),
+                    details: json!({ "subtype": "emergency_contact" }),
                 },
             )
             .await?;
@@ -1533,7 +1538,6 @@ impl<'a, 'c> People<'a, 'c> {
                 nickname: true,
                 notes: "Support worker (demo).".to_owned(),
                 details: json!({
-                    "contact_role": "worker",
                     "employment": {
                         "type": employment,
                         "start_date": start.to_string()
@@ -1720,7 +1724,7 @@ impl<'a, 'c> People<'a, 'c> {
                 pronouns: None,
                 nickname: true,
                 notes: "Family member (demo).".to_owned(),
-                details: json!({ "contact_role": "other", "subtype": "family" }),
+                details: json!({ "subtype": "family" }),
             },
         )
         .await?;

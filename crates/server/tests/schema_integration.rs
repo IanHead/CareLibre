@@ -371,6 +371,91 @@ async fn organisations_are_unified_and_linked_by_relationships() {
     tx.rollback().await.unwrap();
 }
 
+async fn care_roles(tx: &mut Transaction<'_, Postgres>, contact: Uuid) -> (bool, bool) {
+    sqlx::query_as("SELECT is_client, is_worker FROM contact_care_roles WHERE contact_id = $1")
+        .bind(contact)
+        .fetch_one(&mut **tx)
+        .await
+        .expect("care roles")
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn clients_and_workers_come_from_relationships_with_the_organisation() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+
+    let tenant = create_organisation(&mut tx).await;
+    let client = create_contact(&mut tx, tenant).await;
+    let worker = create_contact(&mut tx, tenant).await;
+    let family = create_contact(&mut tx, tenant).await;
+    let former = create_contact(&mut tx, tenant).await;
+
+    assert_eq!(care_roles(&mut tx, client).await, (false, false));
+
+    // Contact -> organisation: the contact receives care from the organisation.
+    sqlx::query(
+        "INSERT INTO relationships
+            (id, organisation_id, from_contact_id, to_organisation_id, from_role, to_role)
+         VALUES ($1, $2, $3, $2, 'care_recipient', 'provider')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(tenant)
+    .bind(client)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    // Organisation -> contact works too, because relationships are two-sided.
+    sqlx::query(
+        "INSERT INTO relationships
+            (id, organisation_id, from_organisation_id, to_contact_id, from_role, to_role)
+         VALUES ($1, $2, $2, $3, 'employer', 'employee')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(tenant)
+    .bind(worker)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    // A care relationship with another contact does not make a client.
+    sqlx::query(
+        "INSERT INTO relationships
+            (id, organisation_id, from_contact_id, to_contact_id, from_role, to_role)
+         VALUES ($1, $2, $3, $4, 'care_recipient', 'provider')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(tenant)
+    .bind(family)
+    .bind(client)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    // An ended relationship no longer counts.
+    sqlx::query(
+        "INSERT INTO relationships
+            (id, organisation_id, from_contact_id, to_organisation_id, from_role, to_role,
+             start_date, end_date)
+         VALUES ($1, $2, $3, $2, 'care_recipient', 'provider',
+                 CURRENT_DATE - 30, CURRENT_DATE - 1)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(tenant)
+    .bind(former)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    assert_eq!(care_roles(&mut tx, client).await, (true, false));
+    assert_eq!(care_roles(&mut tx, worker).await, (false, true));
+    assert_eq!(care_roles(&mut tx, family).await, (false, false));
+    assert_eq!(care_roles(&mut tx, former).await, (false, false));
+
+    tx.rollback().await.unwrap();
+}
+
 #[tokio::test]
 #[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
 async fn assignments_are_consistent_and_contacts_are_fluid() {
