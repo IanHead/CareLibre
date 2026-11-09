@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "seed-demo"
-path = "src/bin/seed_demo.rs"
+path = "src/bin/seed_demo/main.rs"
 
 [dependencies]
 anyhow.workspace = true

@@ -22,93 +22,38 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
+mod names;
+mod people;
+
+use people::{People, Staff};
+
 const SLUG: &str = "blue-dreams-care";
 const EMAIL_DOMAIN: &str = "bluedreams.example";
 const PASSWORD: &str = "BlueDreamsCare!2026";
 
-const FIRST_NAMES: &[&str] = &[
-    "Olivia",
-    "Liam",
-    "Amelia",
-    "Noah",
-    "Charlotte",
-    "Oliver",
-    "Mia",
-    "Elijah",
-    "Ava",
-    "James",
-    "Sophia",
-    "William",
-    "Isla",
-    "Jack",
-    "Grace",
-    "Henry",
-    "Chloe",
-    "Thomas",
-    "Ruby",
-    "Ethan",
-    "Zoe",
-    "Lucas",
-    "Willow",
-    "Mason",
-    "Harper",
-    "Logan",
-    "Ivy",
-    "Samuel",
-    "Matilda",
-    "Hudson",
-    "Sienna",
-    "Archer",
-    "Aria",
-    "Levi",
-    "Ella",
-    "Hunter",
-    "Amara",
-    "Jasper",
-    "Priya",
-    "Aarav",
-    "Mei",
-    "Diego",
-    "Fatima",
-    "Omar",
-    "Anika",
-    "Sione",
-    "Leilani",
-    "Yusuf",
-    "Nina",
-    "Kai",
-];
-
-const LAST_NAMES: &[&str] = &[
-    "Smith", "Nguyen", "Williams", "Brown", "Wilson", "Taylor", "Johnson", "White", "Martin",
-    "Anderson", "Thompson", "Thomas", "Walker", "Harris", "Ryan", "Robinson", "Kelly", "Young",
-    "King", "Wright", "Lee", "Patel", "Singh", "Chen", "Kim", "O'Brien", "Murphy", "Cooper",
-    "Campbell", "Evans", "Turner", "Baker", "Hill", "Ward", "Morris", "Moore", "Clark", "Hall",
-    "Green", "Adams", "Baker", "Nelson", "Carter", "Mitchell", "Roberts", "Phillips", "Campbell",
-    "Parker", "Evans", "Edwards",
-];
-
-const SUBURBS: &[&str] = &[
-    "Northcote",
-    "Brunswick",
-    "Preston",
-    "Reservoir",
-    "Thornbury",
-    "Coburg",
-    "Fairfield",
-    "Heidelberg",
-    "Epping",
-    "Bundoora",
-    "Greensborough",
-    "Eltham",
-    "Diamond Creek",
-    "Watsonia",
-    "Macleod",
-    "Rosanna",
-    "Ivanhoe",
-    "Alphington",
-    "Clifton Hill",
-    "Fitzroy North",
+/// Suburb, postcode and the index of the nearest GP practice in
+/// `EXTERNAL_ORGS` (the `health` entries, in order).
+const SUBURBS: &[(&str, &str, usize)] = &[
+    ("Northcote", "3070", 0),
+    ("Brunswick", "3056", 1),
+    ("Preston", "3072", 2),
+    ("Reservoir", "3073", 3),
+    ("Thornbury", "3071", 4),
+    ("Coburg", "3058", 1),
+    ("Fairfield", "3078", 4),
+    ("Heidelberg", "3084", 5),
+    ("Epping", "3076", 6),
+    ("Bundoora", "3083", 7),
+    ("Greensborough", "3088", 7),
+    ("Eltham", "3095", 5),
+    ("Diamond Creek", "3089", 7),
+    ("Watsonia", "3087", 7),
+    ("Macleod", "3085", 5),
+    ("Rosanna", "3084", 5),
+    ("Ivanhoe", "3079", 5),
+    ("Alphington", "3078", 0),
+    ("Clifton Hill", "3068", 0),
+    ("Fitzroy North", "3068", 0),
 ];
 
 const STREETS: &[&str] = &[
@@ -188,6 +133,8 @@ const EXTERNAL_ORGS: &[(&str, &str)] = &[
     ("Advocacy Victoria", "advocacy"),
     ("Disability Rights Network", "advocacy"),
     ("Carer Support Victoria", "advocacy"),
+    ("Northern Specialist Rooms", "medical_specialists"),
+    ("Office of the Public Advocate", "government"),
     ("Interpreter Connect", "other"),
     ("Community Legal Help", "other"),
     ("Wellbeing Counselling", "other"),
@@ -230,10 +177,18 @@ async fn main() -> anyhow::Result<()> {
     let services = insert_services(&mut tx, organisation, &divisions, &mut rng).await?;
     let custom_fields = insert_custom_fields(&mut tx, organisation).await?;
 
-    let clients = insert_clients(&mut tx, organisation, &mut rng, &custom_fields).await?;
-    let staff = insert_staff(&mut tx, organisation, &mut rng, &custom_fields).await?;
-    let external = insert_external_organisations(&mut tx, organisation, &mut rng).await?;
-    insert_client_networks(&mut tx, organisation, &clients, &external, &mut rng).await?;
+    let (clients, staff, duplicate_names) = {
+        let mut people = People::new(&mut tx, &mut rng, organisation);
+        let networking = people.external_organisations().await?;
+        let clients = people.clients(&networking, &custom_fields).await?;
+        let staff = people.staff(&custom_fields).await?;
+        people.flush().await?;
+        (clients, staff, people.duplicate_names())
+    };
+    let Staff {
+        ids: staff,
+        conflicts,
+    } = staff;
     insert_rosters(
         &mut tx,
         organisation,
@@ -248,6 +203,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     insert_roster_constraints(&mut tx, organisation, &clients, &staff, &services, &sites).await?;
+    insert_conflict_constraints(&mut tx, organisation, &conflicts).await?;
 
     insert_audit(&mut tx, organisation, clients.len(), staff.len()).await?;
 
@@ -285,6 +241,7 @@ async fn main() -> anyhow::Result<()> {
     println!("  staff:        {}", staff.len());
     println!("  contacts:     {contact_count}");
     println!("  relationships:{relationship_count}");
+    println!("  shared names: {duplicate_names} (coincidental duplicates)");
     println!("  shifts:       {shift_count}");
     println!("  sites:        {site_count}");
     println!("  constraints:  {constraint_count}");
@@ -500,7 +457,10 @@ async fn insert_sites(
         .bind(organisation)
         .bind(divisions.get(division_index).copied())
         .bind(name)
-        .bind(format!("{} demo site", SUBURBS[ids.len() % SUBURBS.len()]))
+        .bind(format!(
+            "{} demo site",
+            SUBURBS[ids.len() % SUBURBS.len()].0
+        ))
         .execute(&mut **tx)
         .await?;
         ids.push(id);
@@ -684,388 +644,6 @@ async fn insert_custom_fields(
     Ok(map)
 }
 
-async fn insert_clients(
-    tx: &mut Transaction<'_, Postgres>,
-    organisation: Uuid,
-    rng: &mut StdRng,
-    fields: &HashMap<String, Uuid>,
-) -> anyhow::Result<Vec<Uuid>> {
-    let mut clients = Vec::with_capacity(600);
-
-    for index in 0..600 {
-        let (given, family, display) = person_name(rng);
-        let id = Uuid::now_v7();
-        let suburb = SUBURBS[rng.gen_range(0..SUBURBS.len())];
-
-        sqlx::query(
-            "INSERT INTO contacts
-                (id, organisation_id, display_name, given_name, family_name,
-                 preferred_name, pronouns, date_of_birth, email, phone, notes, details)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-        )
-        .bind(id)
-        .bind(organisation)
-        .bind(&display)
-        .bind(&given)
-        .bind(&family)
-        .bind(if index % 7 == 0 { Some(given.as_str()) } else { None })
-        .bind(if index % 5 == 0 { Some("they/them") } else { None })
-        .bind(date_of_birth(rng, 1940, 2005))
-        .bind(format!("{}.{}{}@{EMAIL_DOMAIN}", given.to_lowercase(), family.to_lowercase(), index))
-        .bind(phone(rng))
-        .bind(format!("Lives in {suburb}. NDIS participant (demo)."))
-        .bind(json!({
-            "contact_role": "client",
-            "address": {
-                "line1": format!("{} {} Street", rng.gen_range(1..200), STREETS[rng.gen_range(0..STREETS.len())]),
-                "suburb": suburb,
-                "state": "VIC",
-                "postcode": "3070"
-            },
-            "funding": if index % 4 == 0 { "aged_care" } else { "ndis" }
-        }))
-        .execute(&mut **tx)
-        .await?;
-
-        set_custom_value(
-            tx,
-            organisation,
-            fields["ndis_number"],
-            id,
-            json!(format!("{:09}", rng.gen_range(0..1_000_000_000u32))),
-        )
-        .await?;
-        set_custom_value(
-            tx,
-            organisation,
-            fields["plan_end_date"],
-            id,
-            json!((Utc::now().date_naive() + Duration::days(rng.gen_range(90..500))).to_string()),
-        )
-        .await?;
-        let risk = ["low", "medium", "high"][rng.gen_range(0..3)];
-        set_custom_value(tx, organisation, fields["risk_level"], id, json!(risk)).await?;
-
-        clients.push(id);
-    }
-
-    Ok(clients)
-}
-
-async fn insert_staff(
-    tx: &mut Transaction<'_, Postgres>,
-    organisation: Uuid,
-    rng: &mut StdRng,
-    fields: &HashMap<String, Uuid>,
-) -> anyhow::Result<Vec<Uuid>> {
-    let mut staff = Vec::with_capacity(300);
-
-    for index in 0..300 {
-        let (given, family, display) = person_name(rng);
-        let id = Uuid::now_v7();
-
-        sqlx::query(
-            "INSERT INTO contacts
-                (id, organisation_id, display_name, given_name, family_name,
-                 preferred_name, pronouns, date_of_birth, email, phone, notes, details)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-        )
-        .bind(id)
-        .bind(organisation)
-        .bind(&display)
-        .bind(&given)
-        .bind(&family)
-        .bind(if index % 4 == 0 {
-            Some(given.as_str())
-        } else {
-            None
-        })
-        .bind(if index % 6 == 0 {
-            Some("she/her")
-        } else if index % 6 == 1 {
-            Some("he/him")
-        } else {
-            None
-        })
-        .bind(date_of_birth(rng, 1970, 2003))
-        .bind(format!(
-            "staff.{}.{}{}@{EMAIL_DOMAIN}",
-            given.to_lowercase(),
-            family.to_lowercase(),
-            index
-        ))
-        .bind(phone(rng))
-        .bind("Support worker (demo).")
-        .bind(json!({
-            "contact_role": "worker",
-            "employment": {
-                "type": if index % 3 == 0 { "casual" } else { "permanent" },
-                "start_date": "2024-01-15"
-            }
-        }))
-        .execute(&mut **tx)
-        .await?;
-
-        sqlx::query(
-            "INSERT INTO relationships
-                (id, organisation_id, from_contact_id, to_organisation_id,
-                 from_role, to_role)
-             VALUES ($1, $2, $3, $4, 'employee', 'employer')",
-        )
-        .bind(Uuid::now_v7())
-        .bind(organisation)
-        .bind(id)
-        .bind(organisation)
-        .execute(&mut **tx)
-        .await?;
-
-        set_custom_value(
-            tx,
-            organisation,
-            fields["employee_number"],
-            id,
-            json!(format!("EMP-{:04}", index + 1)),
-        )
-        .await?;
-
-        staff.push(id);
-    }
-
-    Ok(staff)
-}
-
-#[derive(Default)]
-struct Networking {
-    support_coordinator: Vec<Uuid>,
-    health: Vec<Uuid>,
-    pharmacy: Vec<Uuid>,
-    plan_manager: Vec<Uuid>,
-    coordinator_contacts: Vec<Uuid>,
-}
-
-async fn insert_external_organisations(
-    tx: &mut Transaction<'_, Postgres>,
-    organisation: Uuid,
-    rng: &mut StdRng,
-) -> anyhow::Result<Networking> {
-    let mut networking = Networking::default();
-
-    for (name, kind) in EXTERNAL_ORGS {
-        let id = Uuid::now_v7();
-        sqlx::query(
-            "INSERT INTO organisations
-                (id, tenant_id, name, kind, abn, email, phone, is_active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, true)",
-        )
-        .bind(id)
-        .bind(organisation)
-        .bind(name)
-        .bind(kind)
-        .bind(abn(rng))
-        .bind(format!(
-            "info{}@{EMAIL_DOMAIN}",
-            name.to_lowercase().replace([' ', '\''], "")
-        ))
-        .bind(phone(rng))
-        .execute(&mut **tx)
-        .await?;
-
-        match *kind {
-            "support_coordinator" => networking.support_coordinator.push(id),
-            "health" => networking.health.push(id),
-            "pharmacy" => networking.pharmacy.push(id),
-            "plan_manager" => networking.plan_manager.push(id),
-            _ => {}
-        }
-
-        for _ in 0..2 {
-            let (given, family, display) = person_name(rng);
-            let contact_id = Uuid::now_v7();
-            sqlx::query(
-                "INSERT INTO contacts
-                    (id, organisation_id, display_name, given_name, family_name,
-                     date_of_birth, email, phone, notes, details)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-            )
-            .bind(contact_id)
-            .bind(organisation)
-            .bind(&display)
-            .bind(&given)
-            .bind(&family)
-            .bind(date_of_birth(rng, 1970, 2000))
-            .bind(format!(
-                "contact.{}@{EMAIL_DOMAIN}",
-                Uuid::now_v7().simple()
-            ))
-            .bind(phone(rng))
-            .bind(format!("Contact at {name} (demo)."))
-            .bind(json!({ "contact_role": "other", "subtype": "external", "organisation": name }))
-            .execute(&mut **tx)
-            .await?;
-
-            sqlx::query(
-                "INSERT INTO relationships
-                    (id, organisation_id, from_contact_id, to_organisation_id,
-                     from_role, to_role)
-                 VALUES ($1, $2, $3, $4, 'representative', 'organisation')",
-            )
-            .bind(Uuid::now_v7())
-            .bind(organisation)
-            .bind(contact_id)
-            .bind(id)
-            .execute(&mut **tx)
-            .await?;
-
-            if *kind == "support_coordinator" {
-                networking.coordinator_contacts.push(contact_id);
-            }
-        }
-    }
-
-    Ok(networking)
-}
-
-async fn insert_client_networks(
-    tx: &mut Transaction<'_, Postgres>,
-    organisation: Uuid,
-    clients: &[Uuid],
-    networking: &Networking,
-    rng: &mut StdRng,
-) -> anyhow::Result<()> {
-    for (index, client) in clients.iter().enumerate() {
-        // Family / guardian contact.
-        let (given, family, display) = person_name(rng);
-        let family_id = Uuid::now_v7();
-        sqlx::query(
-            "INSERT INTO contacts
-                (id, organisation_id, display_name, given_name, family_name,
-                 date_of_birth, email, phone, notes, details)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-        )
-        .bind(family_id)
-        .bind(organisation)
-        .bind(&display)
-        .bind(&given)
-        .bind(&family)
-        .bind(date_of_birth(rng, 1945, 1995))
-        .bind(format!(
-            "network.{}{}@{EMAIL_DOMAIN}",
-            index,
-            Uuid::now_v7().simple()
-        ))
-        .bind(phone(rng))
-        .bind("Family or guardian contact (demo).")
-        .bind(json!({ "contact_role": "other", "subtype": "family" }))
-        .execute(&mut **tx)
-        .await?;
-
-        let to_role = if index % 3 == 0 { "guardian" } else { "family" };
-        add_contact_contact(
-            tx,
-            organisation,
-            *client,
-            family_id,
-            "person_supported",
-            to_role,
-        )
-        .await?;
-
-        if index % 3 == 0 {
-            let (g2, f2, d2) = person_name(rng);
-            let emergency_id = Uuid::now_v7();
-            sqlx::query(
-                "INSERT INTO contacts
-                    (id, organisation_id, display_name, given_name, family_name,
-                     email, phone, notes, details)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            )
-            .bind(emergency_id)
-            .bind(organisation)
-            .bind(&d2)
-            .bind(&g2)
-            .bind(&f2)
-            .bind(format!(
-                "emergency.{}{}@{EMAIL_DOMAIN}",
-                index,
-                Uuid::now_v7().simple()
-            ))
-            .bind(phone(rng))
-            .bind("Emergency contact (demo).")
-            .bind(json!({ "contact_role": "other", "subtype": "emergency_contact" }))
-            .execute(&mut **tx)
-            .await?;
-            add_contact_contact(
-                tx,
-                organisation,
-                *client,
-                emergency_id,
-                "person_supported",
-                "emergency_contact",
-            )
-            .await?;
-        }
-
-        // External supports.
-        let coordinator =
-            networking.support_coordinator[rng.gen_range(0..networking.support_coordinator.len())];
-        add_contact_org(
-            tx,
-            organisation,
-            *client,
-            coordinator,
-            "participant",
-            "support_coordinator",
-        )
-        .await?;
-
-        let doctor = networking.health[rng.gen_range(0..networking.health.len())];
-        add_contact_org(
-            tx,
-            organisation,
-            *client,
-            doctor,
-            "patient",
-            "general_practitioner",
-        )
-        .await?;
-
-        if index % 2 == 0 {
-            let pharmacy = networking.pharmacy[rng.gen_range(0..networking.pharmacy.len())];
-            add_contact_org(tx, organisation, *client, pharmacy, "customer", "pharmacy").await?;
-        }
-
-        if index % 5 < 2 {
-            let plan_manager =
-                networking.plan_manager[rng.gen_range(0..networking.plan_manager.len())];
-            add_contact_org(
-                tx,
-                organisation,
-                *client,
-                plan_manager,
-                "participant",
-                "plan_manager",
-            )
-            .await?;
-        }
-
-        if index % 2 == 0 {
-            let coordinator_contact = networking.coordinator_contacts
-                [rng.gen_range(0..networking.coordinator_contacts.len())];
-            add_contact_contact(
-                tx,
-                organisation,
-                *client,
-                coordinator_contact,
-                "participant",
-                "support_coordinator",
-            )
-            .await?;
-        }
-    }
-
-    Ok(())
-}
-
 struct RosterData<'a> {
     clients: &'a [Uuid],
     staff: &'a [Uuid],
@@ -1128,7 +706,7 @@ async fn insert_rosters(
             .bind(ends_at)
             .bind(format!(
                 "Client home, {}",
-                SUBURBS[shift_index % SUBURBS.len()]
+                SUBURBS[shift_index % SUBURBS.len()].0
             ))
             .bind(shift_status)
             .execute(&mut **tx)
@@ -1343,6 +921,30 @@ async fn insert_roster_constraints(
     Ok(())
 }
 
+/// Workers related to a client are blocked from rostering to them.
+async fn insert_conflict_constraints(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    conflicts: &[(Uuid, Uuid)],
+) -> anyhow::Result<()> {
+    for (worker, client) in conflicts {
+        sqlx::query(
+            "INSERT INTO roster_constraints
+                (id, organisation_id, worker_contact_id, target_contact_id, kind, strength,
+                 reason, source)
+             VALUES ($1, $2, $3, $4, 'blocked', 5, $5, 'hr')",
+        )
+        .bind(Uuid::now_v7())
+        .bind(organisation)
+        .bind(worker)
+        .bind(client)
+        .bind("Family member: declared conflict of interest")
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 async fn insert_audit(
     tx: &mut Transaction<'_, Postgres>,
     organisation: Uuid,
@@ -1380,69 +982,6 @@ async fn set_custom_value(
     .execute(&mut **tx)
     .await?;
     Ok(())
-}
-
-async fn add_contact_contact(
-    tx: &mut Transaction<'_, Postgres>,
-    organisation: Uuid,
-    from: Uuid,
-    to: Uuid,
-    from_role: &str,
-    to_role: &str,
-) -> anyhow::Result<()> {
-    sqlx::query(
-        "INSERT INTO relationships
-            (id, organisation_id, from_contact_id, to_contact_id,
-             from_role, to_role)
-         VALUES ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(Uuid::now_v7())
-    .bind(organisation)
-    .bind(from)
-    .bind(to)
-    .bind(from_role)
-    .bind(to_role)
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
-async fn add_contact_org(
-    tx: &mut Transaction<'_, Postgres>,
-    organisation: Uuid,
-    from: Uuid,
-    to_org: Uuid,
-    from_role: &str,
-    to_role: &str,
-) -> anyhow::Result<()> {
-    sqlx::query(
-        "INSERT INTO relationships
-            (id, organisation_id, from_contact_id, to_organisation_id,
-             from_role, to_role)
-         VALUES ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(Uuid::now_v7())
-    .bind(organisation)
-    .bind(from)
-    .bind(to_org)
-    .bind(from_role)
-    .bind(to_role)
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
-fn person_name(rng: &mut StdRng) -> (String, String, String) {
-    let given = FIRST_NAMES[rng.gen_range(0..FIRST_NAMES.len())].to_owned();
-    let family = LAST_NAMES[rng.gen_range(0..LAST_NAMES.len())].to_owned();
-    let display = format!("{given} {family}");
-    (given, family, display)
-}
-
-fn date_of_birth(rng: &mut StdRng, from_year: i32, to_year: i32) -> NaiveDate {
-    let start = NaiveDate::from_ymd_opt(from_year, 1, 1).expect("valid date");
-    let days = i64::from(to_year - from_year) * 365 + 364;
-    start + Duration::days(rng.gen_range(0..days))
 }
 
 fn phone(rng: &mut StdRng) -> String {
