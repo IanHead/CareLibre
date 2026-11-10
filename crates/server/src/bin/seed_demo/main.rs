@@ -15,12 +15,15 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Context};
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
+use sqlx::types::Json as SqlJson;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
+
+use carelibre_server::funding;
 
 mod names;
 mod people;
@@ -204,10 +207,22 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     insert_roster_constraints(&mut tx, organisation, &clients, &staff, &services, &sites).await?;
     insert_conflict_constraints(&mut tx, organisation, &conflicts).await?;
+    let (quality_values, client_requirements, organisation_requirements) =
+        insert_worker_qualities(&mut tx, organisation, &clients, &staff).await?;
+    let (funding_packages, funding_agreements, quoted_agreements) =
+        insert_funding_examples(&mut tx, organisation, &clients, &services, &sites).await?;
 
     insert_audit(&mut tx, organisation, clients.len(), staff.len()).await?;
 
     tx.commit().await?;
+
+    let mut generated_shifts = 0;
+    for agreement in quoted_agreements.iter().take(2) {
+        match funding::finalise_agreement(&pool, organisation, *agreement).await {
+            Ok((_, generated)) => generated_shifts += generated,
+            Err(err) => eprintln!("warning: could not finalise demo agreement: {err}"),
+        }
+    }
 
     let contact_count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM contacts WHERE organisation_id = $1")
@@ -245,6 +260,8 @@ async fn main() -> anyhow::Result<()> {
     println!("  shifts:       {shift_count}");
     println!("  sites:        {site_count}");
     println!("  constraints:  {constraint_count}");
+    println!("  qualities:    {quality_values} worker values, {client_requirements} client requirements, {organisation_requirements} organisation requirements");
+    println!("  funding:      {funding_packages} packages, {funding_agreements} agreements, {generated_shifts} generated shifts");
     println!("  divisions:    {}", divisions.len());
     println!("  cost centres: {}", cost_centres.len());
     println!("  services:     {}", services.len());
@@ -812,6 +829,645 @@ async fn insert_rosters(
     }
 
     Ok(())
+}
+
+async fn insert_worker_qualities(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    clients: &[Uuid],
+    staff: &[Uuid],
+) -> anyhow::Result<(usize, usize, usize)> {
+    let rows: Vec<(String, Uuid)> =
+        sqlx::query_as("SELECT key, id FROM worker_qualities WHERE organisation_id = $1")
+            .bind(organisation)
+            .fetch_all(&mut **tx)
+            .await?;
+    let qualities: HashMap<String, Uuid> = rows.into_iter().collect();
+    let quality = |key: &str| {
+        qualities
+            .get(key)
+            .copied()
+            .with_context(|| format!("the demo catalogue is missing {key}"))
+    };
+
+    // Intrinsic profile data, entered once on the contact. The mix gives the
+    // requirement engine realistic matches, mismatches and unknowns.
+    for (index, contact) in staff.iter().enumerate() {
+        let gender = match index % 11 {
+            3 => "non_binary",
+            8 => "prefer_not_to_say",
+            _ if index % 2 == 0 => "female",
+            _ => "male",
+        };
+        let languages: Vec<String> = match index % 6 {
+            0 => vec!["English".to_owned(), "Cantonese".to_owned()],
+            1 => vec!["English".to_owned(), "Arabic".to_owned()],
+            2 => vec!["English".to_owned(), "Vietnamese".to_owned()],
+            3 => vec!["English".to_owned(), "Mandarin".to_owned()],
+            _ => vec!["English".to_owned()],
+        };
+        let cultural_identity = match index % 9 {
+            0 => Some("Anglo-Australian"),
+            1 => Some("Chinese-Australian"),
+            2 => Some("Vietnamese-Australian"),
+            3 => Some("Aboriginal and Torres Strait Islander"),
+            4 => Some("Greek-Australian"),
+            _ => None,
+        };
+        sqlx::query(
+            "UPDATE contacts
+             SET gender = $3, languages = $4, cultural_identity = $5
+             WHERE organisation_id = $1 AND id = $2",
+        )
+        .bind(organisation)
+        .bind(contact)
+        .bind(gender)
+        .bind(&languages)
+        .bind(cultural_identity)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for (index, contact) in clients.iter().enumerate() {
+        let languages: Vec<String> = match index % 7 {
+            0 => vec!["English".to_owned(), "Cantonese".to_owned()],
+            1 => vec!["English".to_owned(), "Italian".to_owned()],
+            2 => vec!["English".to_owned(), "Vietnamese".to_owned()],
+            3 => vec!["English".to_owned(), "Arabic".to_owned()],
+            _ => vec!["English".to_owned()],
+        };
+        let cultural_identity = match index % 8 {
+            0 => Some("Chinese-Australian"),
+            1 => Some("Italian-Australian"),
+            2 => Some("Vietnamese-Australian"),
+            3 => Some("Aboriginal and Torres Strait Islander"),
+            _ => None,
+        };
+        sqlx::query(
+            "UPDATE contacts
+             SET languages = $3, cultural_identity = $4
+             WHERE organisation_id = $1 AND id = $2",
+        )
+        .bind(organisation)
+        .bind(contact)
+        .bind(&languages)
+        .bind(cultural_identity)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    let today = Utc::now().date_naive();
+    let mut value_count = 0;
+
+    for (index, worker) in staff.iter().copied().enumerate() {
+        // Organisation screening checks: most workers hold them, a few are
+        // missing, expired or close to expiry so suitability shows every state.
+        match index % 11 {
+            4 => {}
+            3 => {
+                add_quality_value(
+                    tx,
+                    organisation,
+                    worker,
+                    quality("ndis_worker_screening")?,
+                    Some(today - Duration::days(30)),
+                    "NDIS clearance expired",
+                )
+                .await?;
+                value_count += 1;
+            }
+            5 => {
+                add_quality_value(
+                    tx,
+                    organisation,
+                    worker,
+                    quality("ndis_worker_screening")?,
+                    Some(today + Duration::days(15)),
+                    "NDIS clearance expiring",
+                )
+                .await?;
+                value_count += 1;
+            }
+            _ => {
+                add_quality_value(
+                    tx,
+                    organisation,
+                    worker,
+                    quality("ndis_worker_screening")?,
+                    Some(today + Duration::days(365 + (index as i64 % 120))),
+                    "NDIS clearance current",
+                )
+                .await?;
+                value_count += 1;
+            }
+        }
+
+        if index % 13 != 6 {
+            add_quality_value(
+                tx,
+                organisation,
+                worker,
+                quality("police_check")?,
+                Some(today + Duration::days(180 + (index as i64 % 90))),
+                "Police check current",
+            )
+            .await?;
+            value_count += 1;
+        }
+
+        if index % 17 != 8 {
+            add_quality_value(
+                tx,
+                organisation,
+                worker,
+                quality("working_with_children_check")?,
+                Some(today + Duration::days(730 + (index as i64 % 180))),
+                "Working With Children Check current",
+            )
+            .await?;
+            value_count += 1;
+        }
+
+        match index % 8 {
+            0 => {
+                add_quality_value(
+                    tx,
+                    organisation,
+                    worker,
+                    quality("first_aid")?,
+                    Some(today - Duration::days(20)),
+                    "First aid expired",
+                )
+                .await?;
+                value_count += 1;
+            }
+            1 => {
+                add_quality_value(
+                    tx,
+                    organisation,
+                    worker,
+                    quality("first_aid")?,
+                    Some(today + Duration::days(20)),
+                    "First aid expiring",
+                )
+                .await?;
+                value_count += 1;
+            }
+            2 => {}
+            _ => {
+                add_quality_value(
+                    tx,
+                    organisation,
+                    worker,
+                    quality("first_aid")?,
+                    Some(today + Duration::days(365 + (index as i64 % 200))),
+                    "First aid current",
+                )
+                .await?;
+                value_count += 1;
+            }
+        }
+
+        if index % 3 != 2 {
+            add_quality_value(
+                tx,
+                organisation,
+                worker,
+                quality("manual_handling")?,
+                Some(today + Duration::days(365 + (index as i64 % 200))),
+                "Manual handling current",
+            )
+            .await?;
+            value_count += 1;
+        }
+
+        if index % 9 == 0 {
+            add_quality_value(
+                tx,
+                organisation,
+                worker,
+                quality("peg_feeding")?,
+                Some(today + Duration::days(365 + (index as i64 % 120))),
+                "PEG feeding training current",
+            )
+            .await?;
+            value_count += 1;
+        }
+
+        if index % 7 == 0 {
+            add_quality_value(
+                tx,
+                organisation,
+                worker,
+                quality("medication_administration")?,
+                Some(today + Duration::days(365 + (index as i64 % 120))),
+                "Medication administration current",
+            )
+            .await?;
+            value_count += 1;
+        }
+
+        if index % 4 == 0 {
+            add_quality_value(
+                tx,
+                organisation,
+                worker,
+                quality("drivers_licence")?,
+                Some(today + Duration::days(730 + (index as i64 % 365))),
+                "Driver's licence current",
+            )
+            .await?;
+            value_count += 1;
+        }
+    }
+
+    let mut client_count = 0;
+    for (index, client) in clients.iter().copied().enumerate() {
+        match index {
+            0 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("gender")?,
+                    "equals",
+                    Some(Value::String("female".to_owned())),
+                    "warn",
+                    "Personal care preference",
+                )
+                .await?;
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("peg_feeding")?,
+                    "exists",
+                    None,
+                    "warn",
+                    "PEG fed; worker must be trained",
+                )
+                .await?;
+                client_count += 2;
+            }
+            1 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("manual_handling")?,
+                    "exists",
+                    None,
+                    "warn",
+                    "Manual transfers",
+                )
+                .await?;
+                client_count += 1;
+            }
+            2 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("languages")?,
+                    "contains",
+                    Some(Value::String("Cantonese".to_owned())),
+                    "warn",
+                    "Speaks Cantonese at home",
+                )
+                .await?;
+                client_count += 1;
+            }
+            3 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("first_aid")?,
+                    "exists",
+                    None,
+                    "block",
+                    "High medical support needs",
+                )
+                .await?;
+                client_count += 1;
+            }
+            4 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("peg_feeding")?,
+                    "exists",
+                    None,
+                    "block",
+                    "PEG fed; training is mandatory",
+                )
+                .await?;
+                client_count += 1;
+            }
+            5 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("medication_administration")?,
+                    "exists",
+                    None,
+                    "warn",
+                    "Medication support",
+                )
+                .await?;
+                client_count += 1;
+            }
+            6 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("gender")?,
+                    "equals",
+                    Some(Value::String("female".to_owned())),
+                    "warn",
+                    "Personal care preference",
+                )
+                .await?;
+                client_count += 1;
+            }
+            7 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("drivers_licence")?,
+                    "exists",
+                    None,
+                    "warn",
+                    "Transport support",
+                )
+                .await?;
+                client_count += 1;
+            }
+            8 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("cpr")?,
+                    "exists",
+                    None,
+                    "warn",
+                    "High intensity support",
+                )
+                .await?;
+                client_count += 1;
+            }
+            9 => {
+                add_client_requirement(
+                    tx,
+                    organisation,
+                    client,
+                    quality("working_with_children_check")?,
+                    "exists",
+                    None,
+                    "warn",
+                    "Child-safe support setting",
+                )
+                .await?;
+                client_count += 1;
+            }
+            _ => {}
+        }
+    }
+
+    let organisation_requirements = [
+        (
+            "ndis_worker_screening",
+            "block",
+            "NDIS practice standard: all workers must hold a current clearance",
+        ),
+        (
+            "police_check",
+            "warn",
+            "Organisation policy: current police check",
+        ),
+        (
+            "working_with_children_check",
+            "warn",
+            "Working with children and vulnerable people",
+        ),
+    ];
+    for (key, severity, reason) in organisation_requirements {
+        add_organisation_requirement(
+            tx,
+            organisation,
+            quality(key)?,
+            "exists",
+            None,
+            severity,
+            reason,
+        )
+        .await?;
+    }
+
+    Ok((value_count, client_count, organisation_requirements.len()))
+}
+
+async fn add_quality_value(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    worker: Uuid,
+    quality: Uuid,
+    expires_on: Option<NaiveDate>,
+    evidence: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO worker_quality_values
+            (id, organisation_id, worker_contact_id, quality_id, value, expires_on, evidence)
+         VALUES ($1, $2, $3, $4, 'true'::jsonb, $5, $6)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(worker)
+    .bind(quality)
+    .bind(expires_on)
+    .bind(evidence)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn add_client_requirement(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    client: Uuid,
+    quality: Uuid,
+    operator: &str,
+    value: Option<Value>,
+    severity: &str,
+    reason: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO client_quality_requirements
+            (id, organisation_id, client_contact_id, quality_id, operator, value, severity, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(client)
+    .bind(quality)
+    .bind(operator)
+    .bind(value.map(SqlJson))
+    .bind(severity)
+    .bind(reason)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn add_organisation_requirement(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    quality: Uuid,
+    operator: &str,
+    value: Option<Value>,
+    severity: &str,
+    reason: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO organisation_quality_requirements
+            (id, organisation_id, quality_id, operator, value, severity, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(quality)
+    .bind(operator)
+    .bind(value.map(SqlJson))
+    .bind(severity)
+    .bind(reason)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn insert_funding_examples(
+    tx: &mut Transaction<'_, Postgres>,
+    organisation: Uuid,
+    clients: &[Uuid],
+    services: &[Uuid],
+    sites: &[Uuid],
+) -> anyhow::Result<(usize, usize, Vec<Uuid>)> {
+    let rows: Vec<(String, Uuid)> =
+        sqlx::query_as("SELECT key, id FROM funding_sources WHERE organisation_id = $1")
+            .bind(organisation)
+            .fetch_all(&mut **tx)
+            .await?;
+    let sources: HashMap<String, Uuid> = rows.into_iter().collect();
+    let source = |key: &str| {
+        sources
+            .get(key)
+            .copied()
+            .with_context(|| format!("the demo funding sources are missing {key}"))
+    };
+
+    let today = Utc::now().date_naive();
+    let mut package_count = 0;
+    let mut agreement_count = 0;
+    let mut quoted = Vec::new();
+
+    for (index, client) in clients.iter().copied().enumerate() {
+        let (source_key, budget) = match index {
+            0 => ("ndis", 50_000.0),
+            1 => ("support_at_home", 15_000.0),
+            2 => ("chsp", 8_000.0),
+            3 => ("private", 5_000.0),
+            4 => ("tac", 20_000.0),
+            _ if index % 7 == 0 => ("ndis", 30_000.0),
+            _ => continue,
+        };
+
+        let package_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO funding_packages
+                (id, organisation_id, client_contact_id, funding_source_id, name,
+                 reference, start_date, end_date, budget_amount, status, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10)",
+        )
+        .bind(package_id)
+        .bind(organisation)
+        .bind(client)
+        .bind(source(source_key)?)
+        .bind(format!("{source_key} package"))
+        .bind(format!("DEMO-{source_key}-{index:04}"))
+        .bind(today - Duration::days(30))
+        .bind(today + Duration::days(335))
+        .bind(budget)
+        .bind("Seeded example funding package")
+        .execute(&mut **tx)
+        .await?;
+        package_count += 1;
+
+        let agreement_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO client_agreements
+                (id, organisation_id, client_contact_id, funding_package_id, title,
+                 status, quote_date, start_date, end_date, total_amount, notes)
+             VALUES ($1, $2, $3, $4, $5, 'quoted', $6, $7, $8, 322, $9)",
+        )
+        .bind(agreement_id)
+        .bind(organisation)
+        .bind(client)
+        .bind(package_id)
+        .bind("Weekly personal care and community access")
+        .bind(today)
+        .bind(today)
+        .bind(today + Duration::days(90))
+        .bind("Seeded example quote; finalise it to generate draft shifts")
+        .execute(&mut **tx)
+        .await?;
+        agreement_count += 1;
+
+        let service = services.get(index % services.len()).copied();
+        let site = sites.get(index % sites.len()).copied();
+        sqlx::query(
+            "INSERT INTO agreement_lines
+                (id, organisation_id, agreement_id, service_id, site_id, description,
+                 quantity, unit, unit_rate, amount, recurrence, weekdays,
+                 start_time, duration_minutes)
+             VALUES ($1, $2, $3, $4, $5, 'Personal care', 2, 'hour', 68, 136,
+                     'weekly', ARRAY[1,3]::smallint[], $6, 120)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(organisation)
+        .bind(agreement_id)
+        .bind(service)
+        .bind(site)
+        .bind(NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"))
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO agreement_lines
+                (id, organisation_id, agreement_id, service_id, site_id, description,
+                 quantity, unit, unit_rate, amount, recurrence, weekdays,
+                 start_time, duration_minutes)
+             VALUES ($1, $2, $3, $4, $5, 'Community access', 3, 'hour', 62, 186,
+                     'weekly', ARRAY[5]::smallint[], $6, 180)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(organisation)
+        .bind(agreement_id)
+        .bind(service)
+        .bind(site)
+        .bind(NaiveTime::from_hms_opt(13, 0, 0).expect("valid time"))
+        .execute(&mut **tx)
+        .await?;
+
+        quoted.push(agreement_id);
+    }
+
+    Ok((package_count, agreement_count, quoted))
 }
 
 async fn insert_roster_constraints(

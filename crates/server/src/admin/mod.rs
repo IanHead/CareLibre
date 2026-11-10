@@ -9,12 +9,14 @@ pub mod auth;
 pub mod csrf;
 pub mod custom_fields;
 pub mod erd;
+pub mod funding_sources;
 pub mod html;
 pub mod import_ui;
 pub mod invitations;
 pub mod network;
 pub mod onboarding;
 pub mod organisation;
+pub mod organisation_requirements;
 pub mod pages;
 pub mod permission_sets;
 pub mod relationship_types;
@@ -48,6 +50,22 @@ pub fn router() -> Router<AppState> {
                 )),
         )
         .route("/organisation/logo/delete", post(organisation::delete_logo))
+        .route(
+            "/organisation/requirements",
+            post(organisation_requirements::add),
+        )
+        .route(
+            "/organisation/requirements/{id}/delete",
+            post(organisation_requirements::delete),
+        )
+        .route(
+            "/funding-sources",
+            get(funding_sources::list).post(funding_sources::add),
+        )
+        .route(
+            "/funding-sources/{id}/active",
+            post(funding_sources::set_active),
+        )
         .route("/relationships", get(network::page))
         .route(
             "/relationship-types",

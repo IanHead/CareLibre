@@ -1352,3 +1352,272 @@ async fn branding_is_restricted_to_tenant_roots() {
 
     tx.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn worker_qualities_are_seeded_and_expiry_is_derived() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+    let organisation = create_organisation(&mut tx).await;
+
+    let system_qualities: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM worker_qualities
+         WHERE organisation_id = $1 AND is_system",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(
+        system_qualities, 3,
+        "gender, languages and cultural identity"
+    );
+
+    let peg: Uuid = sqlx::query_scalar(
+        "SELECT id FROM worker_qualities
+         WHERE organisation_id = $1 AND key = 'peg_feeding'",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("the starter catalogue includes PEG feeding");
+
+    let worker = create_contact(&mut tx, organisation).await;
+    let client = create_contact(&mut tx, organisation).await;
+
+    sqlx::query("UPDATE contacts SET gender = 'female' WHERE organisation_id = $1 AND id = $2")
+        .bind(organisation)
+        .bind(worker)
+        .execute(&mut *tx)
+        .await
+        .expect("gender is a first-class contact field");
+
+    sqlx::query(
+        "INSERT INTO worker_quality_values
+            (id, organisation_id, worker_contact_id, quality_id, value, expires_on)
+         VALUES ($1, $2, $3, $4, 'true'::jsonb, CURRENT_DATE + 10)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(worker)
+    .bind(peg)
+    .execute(&mut *tx)
+    .await
+    .expect("record a held quality with an expiry");
+
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM worker_quality_status
+         WHERE organisation_id = $1 AND worker_contact_id = $2 AND quality_id = $3",
+    )
+    .bind(organisation)
+    .bind(worker)
+    .bind(peg)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(status, "expiring");
+
+    sqlx::query(
+        "INSERT INTO client_quality_requirements
+            (id, organisation_id, client_contact_id, quality_id, operator)
+         VALUES ($1, $2, $3, $4, 'exists')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(client)
+    .bind(peg)
+    .execute(&mut *tx)
+    .await
+    .expect("a client can require PEG feeding");
+
+    sqlx::query("SAVEPOINT duplicate_client")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let duplicate = sqlx::query(
+        "INSERT INTO client_quality_requirements
+            (id, organisation_id, client_contact_id, quality_id, operator)
+         VALUES ($1, $2, $3, $4, 'exists')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(client)
+    .bind(peg)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        duplicate.is_err(),
+        "one requirement per quality and service"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT duplicate_client")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let screening: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM worker_qualities
+         WHERE organisation_id = $1 AND category = 'screening'",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(
+        screening, 3,
+        "NDIS, police and working-with-children checks are seeded"
+    );
+
+    let ndis: Uuid = sqlx::query_scalar(
+        "SELECT id FROM worker_qualities
+         WHERE organisation_id = $1 AND key = 'ndis_worker_screening'",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO organisation_quality_requirements
+            (id, organisation_id, quality_id, operator, severity, reason)
+         VALUES ($1, $2, $3, 'exists', 'block', 'NDIS practice standard')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(ndis)
+    .execute(&mut *tx)
+    .await
+    .expect("the organisation can require a screening check");
+
+    sqlx::query("SAVEPOINT duplicate_org")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let duplicate_org = sqlx::query(
+        "INSERT INTO organisation_quality_requirements
+            (id, organisation_id, quality_id, operator, severity, reason)
+         VALUES ($1, $2, $3, 'exists', 'warn', 'duplicate')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(ndis)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        duplicate_org.is_err(),
+        "one organisation requirement per quality"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT duplicate_org")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn funding_sources_packages_and_agreements_are_tenant_scoped() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.unwrap();
+    let organisation = create_organisation(&mut tx).await;
+
+    let seeded: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM funding_sources
+         WHERE organisation_id = $1 AND is_system",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(seeded, 5, "NDIS, SAH, CHSP, private and TAC are seeded");
+
+    let ndis: Uuid = sqlx::query_scalar(
+        "SELECT id FROM funding_sources
+         WHERE organisation_id = $1 AND key = 'ndis'",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let client = create_contact(&mut tx, organisation).await;
+    let package = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO funding_packages
+            (id, organisation_id, client_contact_id, funding_source_id, name,
+             reference, start_date, end_date, budget_amount)
+         VALUES ($1, $2, $3, $4, 'NDIS plan 2026', 'NDIS-123', CURRENT_DATE,
+                 CURRENT_DATE + 365, 5000)",
+    )
+    .bind(package)
+    .bind(organisation)
+    .bind(client)
+    .bind(ndis)
+    .execute(&mut *tx)
+    .await
+    .expect("a client can hold a funding package");
+
+    let agreement = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO client_agreements
+            (id, organisation_id, client_contact_id, funding_package_id, title,
+             status, start_date, end_date, total_amount)
+         VALUES ($1, $2, $3, $4, 'Weekly personal care', 'active',
+                 CURRENT_DATE, CURRENT_DATE + 30, 120)",
+    )
+    .bind(agreement)
+    .bind(organisation)
+    .bind(client)
+    .bind(package)
+    .execute(&mut *tx)
+    .await
+    .expect("an agreement belongs to a funding package");
+
+    sqlx::query(
+        "INSERT INTO agreement_lines
+            (id, organisation_id, agreement_id, description, quantity, unit,
+             unit_rate, amount, recurrence, weekdays, start_time, duration_minutes)
+         VALUES ($1, $2, $3, 'Personal care', 2, 'hour', 60, 120, 'weekly',
+                 ARRAY[1,3]::smallint[], '09:00', 120)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(agreement)
+    .execute(&mut *tx)
+    .await
+    .expect("agreement lines carry the schedule used for roster generation");
+
+    let committed: f64 = sqlx::query_scalar(
+        "SELECT committed_amount::float8 FROM funding_package_summary
+         WHERE organisation_id = $1 AND funding_package_id = $2",
+    )
+    .bind(organisation)
+    .bind(package)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(committed, 120.0);
+
+    sqlx::query("SAVEPOINT invalid_weekday")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let invalid = sqlx::query(
+        "INSERT INTO agreement_lines
+            (id, organisation_id, agreement_id, description, quantity, unit,
+             unit_rate, amount, weekdays)
+         VALUES ($1, $2, $3, 'Bad day', 1, 'hour', 60, 60, ARRAY[9]::smallint[])",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(agreement)
+    .execute(&mut *tx)
+    .await;
+    assert!(invalid.is_err(), "weekdays are limited to Monday–Sunday");
+    sqlx::query("ROLLBACK TO SAVEPOINT invalid_weekday")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    tx.rollback().await.unwrap();
+}

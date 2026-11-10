@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod contacts;
+pub mod funding;
 pub mod health;
 pub mod openapi;
 pub mod organisation;
@@ -9,6 +10,7 @@ pub mod relationship_types;
 pub mod relationships;
 pub mod rostering;
 pub mod status;
+pub mod worker_qualities;
 
 use axum::{
     extract::DefaultBodyLimit,
@@ -63,6 +65,60 @@ fn v1_routes() -> Router<AppState> {
         )
         .route("/contacts", get(contacts::list).post(contacts::create))
         .route("/contacts/{id}", get(contacts::get).patch(contacts::update))
+        .route(
+            "/contacts/{id}/qualities",
+            get(worker_qualities::list_values).post(worker_qualities::set_value),
+        )
+        .route(
+            "/contacts/{id}/qualities/{quality_id}",
+            axum::routing::delete(worker_qualities::delete_value),
+        )
+        .route(
+            "/contacts/{id}/requirements",
+            get(worker_qualities::list_requirements).post(worker_qualities::set_requirement),
+        )
+        .route(
+            "/contacts/{id}/requirements/{requirement_id}",
+            axum::routing::delete(worker_qualities::delete_requirement),
+        )
+        .route(
+            "/worker-qualities",
+            get(worker_qualities::list).post(worker_qualities::create),
+        )
+        .route(
+            "/worker-qualities/{id}",
+            axum::routing::patch(worker_qualities::update),
+        )
+        .route(
+            "/funding-sources",
+            get(funding::list_sources).post(funding::create_source),
+        )
+        .route(
+            "/funding-sources/{id}",
+            axum::routing::patch(funding::update_source),
+        )
+        .route(
+            "/contacts/{id}/funding-packages",
+            get(funding::list_packages).post(funding::create_package),
+        )
+        .route(
+            "/funding-packages/{id}",
+            axum::routing::patch(funding::update_package_status),
+        )
+        .route(
+            "/contacts/{id}/agreements",
+            get(funding::list_agreements).post(funding::create_agreement),
+        )
+        .route(
+            "/agreements/{id}",
+            axum::routing::patch(funding::update_agreement_status),
+        )
+        .route("/agreements/{id}/lines", post(funding::add_line))
+        .route(
+            "/agreements/{id}/lines/{line_id}",
+            axum::routing::delete(funding::delete_line),
+        )
+        .route("/agreements/{id}/finalise", post(funding::finalise))
         .route(
             "/relationships",
             get(relationships::list).post(relationships::create),

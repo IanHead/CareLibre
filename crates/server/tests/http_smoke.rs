@@ -116,6 +116,9 @@ async fn rostering_requires_authentication() {
         "/api/v1/shifts/00000000-0000-0000-0000-000000000000",
         "/api/v1/shifts/00000000-0000-0000-0000-000000000000/suitability",
         "/api/v1/roster-constraints",
+        "/api/v1/worker-qualities",
+        "/api/v1/contacts/00000000-0000-0000-0000-000000000000/qualities",
+        "/api/v1/contacts/00000000-0000-0000-0000-000000000000/requirements",
     ] {
         let response = get(uri).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
@@ -142,6 +145,9 @@ async fn openapi_document_is_served() {
     assert!(json["paths"]["/api/v1/shifts"].is_object());
     assert!(json["paths"]["/api/v1/shifts/{id}/suitability"].is_object());
     assert!(json["paths"]["/api/v1/roster-constraints"].is_object());
+    assert!(json["paths"]["/api/v1/worker-qualities"].is_object());
+    assert!(json["paths"]["/api/v1/contacts/{id}/qualities"].is_object());
+    assert!(json["paths"]["/api/v1/contacts/{id}/requirements"].is_object());
     assert!(json["paths"]["/api/v1/organisation"].is_object());
     assert!(json["paths"]["/api/v1/organisation/logo"].is_object());
 }

@@ -23,9 +23,10 @@ use crate::{
     permissions::Capability,
     rostering::{
         score_candidate, ConstraintEvidence, ConstraintKind, ContextEvidence, HistorySignal,
-        ScoreInput,
+        RequirementEvidence, RequirementSeverity, RequirementStatus, ScoreInput,
     },
     state::AppState,
+    worker_qualities::{evaluate, EvaluateInput, RequirementStatus as QualityStatus, Storage},
 };
 
 // ---------------------------------------------------------------------------
@@ -217,12 +218,30 @@ pub struct PartyRef {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct SuitabilityRequirement {
+    pub quality_id: Uuid,
+    pub quality_name: String,
+    pub client_id: Uuid,
+    pub client_name: String,
+    pub operator: String,
+    pub value: Option<serde_json::Value>,
+    pub severity: String,
+    /// `met`, `expiring`, `expired`, `mismatch` or `unknown`.
+    pub status: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SuitabilityCandidate {
     pub contact_id: Uuid,
     pub display_name: String,
     pub score: f64,
+    /// False when a client requirement is not met. The candidate is still
+    /// assignable; the desktop groups them after those that meet requirements.
+    pub meets_requirements: bool,
     pub reasons: Vec<String>,
     pub warnings: Vec<String>,
+    pub requirements: Vec<SuitabilityRequirement>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -233,6 +252,8 @@ pub struct SuitabilityResponse {
     pub division: Option<ContextRef>,
     pub clients: Vec<PartyRef>,
     pub assigned_workers: Vec<PartyRef>,
+    /// Requirements that apply to this shift, before matching any candidate.
+    pub requirements: Vec<SuitabilityRequirement>,
     pub candidates: Vec<SuitabilityCandidate>,
     pub blocked: Vec<SuitabilityCandidate>,
 }
@@ -384,6 +405,37 @@ struct ConstraintRow {
 struct ContactRow {
     id: Uuid,
     display_name: String,
+    gender: Option<String>,
+    languages: Vec<String>,
+    cultural_identity: Option<String>,
+    date_of_birth: Option<NaiveDate>,
+}
+
+/// One applicable requirement joined to its quality and scope. `client_id` is
+/// the client for a client requirement, or the organisation for an
+/// organisation-wide requirement.
+#[derive(Debug, FromRow)]
+struct RequirementRow {
+    client_id: Uuid,
+    client_name: String,
+    quality_id: Uuid,
+    quality_name: String,
+    data_type: String,
+    storage: String,
+    contact_field: Option<String>,
+    tracks_expiry: bool,
+    operator: String,
+    value: Option<sqlx::types::Json<serde_json::Value>>,
+    severity: String,
+    reason: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct QualityValueRow {
+    worker_contact_id: Uuid,
+    quality_id: Uuid,
+    value: sqlx::types::Json<serde_json::Value>,
+    expires_on: Option<NaiveDate>,
 }
 
 #[derive(Debug, FromRow)]
@@ -1760,7 +1812,8 @@ pub async fn suitability(
         .collect::<HashSet<_>>();
 
     let candidates = sqlx::query_as::<_, ContactRow>(
-        "SELECT c.id, c.display_name
+        "SELECT c.id, c.display_name, c.gender, c.languages, c.cultural_identity,
+                c.date_of_birth
          FROM contacts c
          JOIN contact_care_roles roles ON roles.contact_id = c.id
          WHERE c.organisation_id=$1 AND c.is_active
@@ -1886,6 +1939,49 @@ pub async fn suitability(
         })
         .collect::<Vec<_>>();
 
+    let shift_requirements = load_organisation_requirements(&state, auth.organisation_id).await?;
+    let mut shift_requirements = shift_requirements;
+    shift_requirements.extend(
+        load_shift_requirements(
+            &state,
+            auth.organisation_id,
+            &client_ids,
+            shift.service.as_ref().map(|service| service.id),
+        )
+        .await?,
+    );
+    let required_quality_ids = shift_requirements
+        .iter()
+        .map(|requirement| requirement.quality_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let quality_values = if candidate_ids.is_empty() || required_quality_ids.is_empty() {
+        HashMap::new()
+    } else {
+        load_quality_values(
+            &state,
+            auth.organisation_id,
+            &candidate_ids,
+            &required_quality_ids,
+        )
+        .await?
+    };
+    let shift_requirement_dtos = shift_requirements
+        .iter()
+        .map(|requirement| SuitabilityRequirement {
+            quality_id: requirement.quality_id,
+            quality_name: requirement.quality_name.clone(),
+            client_id: requirement.client_id,
+            client_name: requirement.client_name.clone(),
+            operator: requirement.operator.clone(),
+            value: requirement.value.as_ref().map(|value| value.0.clone()),
+            severity: requirement.severity.clone(),
+            status: "required".to_owned(),
+            detail: requirement.reason.clone(),
+        })
+        .collect::<Vec<_>>();
+
     let mut ranked = Vec::new();
     let mut blocked = Vec::new();
 
@@ -1960,19 +2056,59 @@ pub async fn suitability(
             })
             .collect::<Vec<_>>();
 
+        let mut requirement_evidence = Vec::new();
+        let mut candidate_requirements = Vec::new();
+        for requirement in &shift_requirements {
+            let (actual, expires_on) =
+                resolve_quality_value(requirement, &candidate, &quality_values);
+            let evaluation = evaluate(EvaluateInput {
+                data_type: &requirement.data_type,
+                operator: &requirement.operator,
+                required: requirement.value.as_ref().map(|value| &value.0),
+                actual: actual.as_ref(),
+                tracks_expiry: requirement.tracks_expiry,
+                expires_on,
+                today,
+            });
+            let severity = RequirementSeverity::parse(&requirement.severity)
+                .unwrap_or(RequirementSeverity::Warn);
+
+            candidate_requirements.push(SuitabilityRequirement {
+                quality_id: requirement.quality_id,
+                quality_name: requirement.quality_name.clone(),
+                client_id: requirement.client_id,
+                client_name: requirement.client_name.clone(),
+                operator: requirement.operator.clone(),
+                value: requirement.value.as_ref().map(|value| value.0.clone()),
+                severity: severity.as_str().to_owned(),
+                status: evaluation.status.as_str().to_owned(),
+                detail: evaluation.detail.clone(),
+            });
+            requirement_evidence.push(RequirementEvidence {
+                quality_name: requirement.quality_name.clone(),
+                client_name: requirement.client_name.clone(),
+                status: requirement_status(evaluation.status),
+                severity,
+                detail: evaluation.detail,
+            });
+        }
+
         let result = score_candidate(ScoreInput {
             client_history: &client_evidence,
             coworker_history: &coworker_evidence,
             context_history: &context_evidence,
             constraints: &constraint_evidence,
+            requirements: &requirement_evidence,
         });
 
         let candidate = SuitabilityCandidate {
             contact_id: candidate.id,
             display_name: candidate.display_name,
             score: result.score,
+            meets_requirements: result.meets_requirements,
             reasons: result.reasons,
             warnings: result.warnings,
+            requirements: candidate_requirements,
         };
 
         if result.blocked {
@@ -1983,9 +2119,13 @@ pub async fn suitability(
     }
 
     ranked.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        b.meets_requirements
+            .cmp(&a.meets_requirements)
+            .then_with(|| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| a.display_name.cmp(&b.display_name))
     });
     blocked.sort_by(|a, b| a.display_name.cmp(&b.display_name));
@@ -1997,6 +2137,7 @@ pub async fn suitability(
         division: shift.division,
         clients,
         assigned_workers,
+        requirements: shift_requirement_dtos,
         candidates: ranked,
         blocked,
     }))
@@ -2150,6 +2291,132 @@ async fn load_constraint(
     .fetch_optional(&state.db)
     .await?;
     Ok(row)
+}
+
+async fn load_shift_requirements(
+    state: &AppState,
+    organisation_id: Uuid,
+    client_ids: &HashSet<Uuid>,
+    service_id: Option<Uuid>,
+) -> Result<Vec<RequirementRow>, AppError> {
+    if client_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids = client_ids.iter().copied().collect::<Vec<_>>();
+    let today = Utc::now().date_naive();
+    Ok(sqlx::query_as::<_, RequirementRow>(
+        "SELECT r.client_contact_id AS client_id, c.display_name AS client_name,
+                r.quality_id, q.name AS quality_name,
+                q.data_type, q.storage, q.contact_field, q.tracks_expiry,
+                r.operator, r.value, r.severity, r.reason
+         FROM client_quality_requirements r
+         JOIN contacts c
+           ON c.organisation_id = r.organisation_id AND c.id = r.client_contact_id
+         JOIN worker_qualities q
+           ON q.organisation_id = r.organisation_id AND q.id = r.quality_id
+         WHERE r.organisation_id = $1
+           AND r.client_contact_id = ANY($2)
+           AND (r.start_date IS NULL OR r.start_date <= $3)
+           AND (r.end_date IS NULL OR r.end_date >= $3)
+           AND (r.service_id IS NULL OR r.service_id = $4)
+         ORDER BY c.display_name, q.name",
+    )
+    .bind(organisation_id)
+    .bind(&ids)
+    .bind(today)
+    .bind(service_id)
+    .fetch_all(&state.db)
+    .await?)
+}
+
+async fn load_organisation_requirements(
+    state: &AppState,
+    organisation_id: Uuid,
+) -> Result<Vec<RequirementRow>, AppError> {
+    let today = Utc::now().date_naive();
+    Ok(sqlx::query_as::<_, RequirementRow>(
+        "SELECT $1::uuid AS client_id, 'Organisation'::text AS client_name,
+                r.quality_id, q.name AS quality_name,
+                q.data_type, q.storage, q.contact_field, q.tracks_expiry,
+                r.operator, r.value, r.severity, r.reason
+         FROM organisation_quality_requirements r
+         JOIN worker_qualities q
+           ON q.organisation_id = r.organisation_id AND q.id = r.quality_id
+         WHERE r.organisation_id = $1
+           AND (r.start_date IS NULL OR r.start_date <= $2)
+           AND (r.end_date IS NULL OR r.end_date >= $2)
+         ORDER BY q.name",
+    )
+    .bind(organisation_id)
+    .bind(today)
+    .fetch_all(&state.db)
+    .await?)
+}
+
+async fn load_quality_values(
+    state: &AppState,
+    organisation_id: Uuid,
+    candidate_ids: &[Uuid],
+    quality_ids: &[Uuid],
+) -> Result<HashMap<(Uuid, Uuid), QualityValueRow>, AppError> {
+    let rows = sqlx::query_as::<_, QualityValueRow>(
+        "SELECT worker_contact_id, quality_id, value, expires_on
+         FROM worker_quality_values
+         WHERE organisation_id = $1
+           AND worker_contact_id = ANY($2)
+           AND quality_id = ANY($3)
+           AND removed_at IS NULL",
+    )
+    .bind(organisation_id)
+    .bind(candidate_ids)
+    .bind(quality_ids)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ((row.worker_contact_id, row.quality_id), row))
+        .collect())
+}
+
+/// Resolve a worker's value for a requirement: an intrinsic contact column or
+/// an on-demand quality value. `None` means not recorded.
+fn resolve_quality_value(
+    requirement: &RequirementRow,
+    candidate: &ContactRow,
+    values: &HashMap<(Uuid, Uuid), QualityValueRow>,
+) -> (Option<serde_json::Value>, Option<NaiveDate>) {
+    if Storage::parse(&requirement.storage) == Some(Storage::ContactField) {
+        let value = match requirement.contact_field.as_deref() {
+            Some("gender") => candidate.gender.clone().map(serde_json::Value::String),
+            Some("languages") => {
+                (!candidate.languages.is_empty()).then(|| serde_json::json!(candidate.languages))
+            }
+            Some("cultural_identity") => candidate
+                .cultural_identity
+                .clone()
+                .map(serde_json::Value::String),
+            Some("date_of_birth") => candidate
+                .date_of_birth
+                .map(|date| serde_json::Value::String(date.to_string())),
+            _ => None,
+        };
+        (value, None)
+    } else {
+        values
+            .get(&(candidate.id, requirement.quality_id))
+            .map(|row| (Some(row.value.0.clone()), row.expires_on))
+            .unwrap_or((None, None))
+    }
+}
+
+fn requirement_status(status: QualityStatus) -> RequirementStatus {
+    match status {
+        QualityStatus::Met => RequirementStatus::Met,
+        QualityStatus::Expiring => RequirementStatus::Expiring,
+        QualityStatus::Expired => RequirementStatus::Expired,
+        QualityStatus::Mismatch => RequirementStatus::Mismatch,
+        QualityStatus::Unknown => RequirementStatus::Unknown,
+    }
 }
 
 fn constraint_evidence_for(

@@ -73,17 +73,88 @@ pub struct ContextEvidence {
     pub multiplier: f64,
 }
 
+/// How strongly a client requirement applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequirementSeverity {
+    Warn,
+    Block,
+}
+
+impl RequirementSeverity {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Warn => "warn",
+            Self::Block => "block",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "warn" => Some(Self::Warn),
+            "block" => Some(Self::Block),
+            _ => None,
+        }
+    }
+}
+
+/// The result of matching one client requirement against one worker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequirementStatus {
+    Met,
+    Expiring,
+    Expired,
+    Mismatch,
+    Unknown,
+}
+
+impl RequirementStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Met => "met",
+            Self::Expiring => "expiring",
+            Self::Expired => "expired",
+            Self::Mismatch => "mismatch",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// `Expiring` still meets the requirement; it is only a warning.
+    #[must_use]
+    pub const fn is_met(self) -> bool {
+        matches!(self, Self::Met | Self::Expiring)
+    }
+}
+
+/// One client requirement evaluated against a candidate.
+#[derive(Debug, Clone)]
+pub struct RequirementEvidence {
+    pub quality_name: String,
+    pub client_name: String,
+    pub status: RequirementStatus,
+    pub severity: RequirementSeverity,
+    /// Short explanation such as "expires 2027-01-10" or "recorded as male".
+    pub detail: Option<String>,
+}
+
 pub struct ScoreInput<'a> {
     pub client_history: &'a [(String, HistorySignal)],
     pub coworker_history: &'a [(String, HistorySignal)],
     pub context_history: &'a [ContextEvidence],
     pub constraints: &'a [ConstraintEvidence],
+    pub requirements: &'a [RequirementEvidence],
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoreResult {
     pub score: f64,
     pub blocked: bool,
+    /// False when at least one client requirement is not met. Such a candidate
+    /// is still assignable; the desktop groups them after those that meet all
+    /// requirements.
+    pub meets_requirements: bool,
     pub reasons: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -115,6 +186,62 @@ pub fn score_candidate(input: ScoreInput<'_>) -> ScoreResult {
     }
 
     let mut blocked = false;
+    let mut meets_requirements = true;
+    for requirement in input.requirements {
+        if !requirement.status.is_met() {
+            meets_requirements = false;
+            if requirement.severity == RequirementSeverity::Block {
+                blocked = true;
+            }
+        }
+
+        let detail = requirement
+            .detail
+            .as_deref()
+            .filter(|detail| !detail.is_empty())
+            .map(|detail| format!(" ({detail})"))
+            .unwrap_or_default();
+
+        match requirement.status {
+            RequirementStatus::Met => reasons.push(format!(
+                "meets {}'s {} requirement{detail}",
+                requirement.client_name, requirement.quality_name
+            )),
+            RequirementStatus::Expiring => warnings.push(format!(
+                "{} for {} expires soon{detail}",
+                requirement.quality_name, requirement.client_name
+            )),
+            RequirementStatus::Expired => {
+                score -= 8.0;
+                warnings.push(format!(
+                    "{} for {} has expired{detail}",
+                    requirement.quality_name, requirement.client_name
+                ));
+            }
+            RequirementStatus::Mismatch => {
+                score -= 8.0;
+                warnings.push(format!(
+                    "{} does not meet {}'s requirement{detail}",
+                    requirement.quality_name, requirement.client_name
+                ));
+            }
+            RequirementStatus::Unknown => {
+                score -= 8.0;
+                warnings.push(format!(
+                    "{} not recorded; required by {}{detail}",
+                    requirement.quality_name, requirement.client_name
+                ));
+            }
+        }
+
+        if !requirement.status.is_met() && requirement.severity == RequirementSeverity::Block {
+            warnings.push(format!(
+                "blocked: {} is required by {}",
+                requirement.quality_name, requirement.client_name
+            ));
+        }
+    }
+
     for constraint in input.constraints {
         let strength = f64::from(constraint.strength.clamp(1, 5));
         let detail = constraint
@@ -143,6 +270,7 @@ pub fn score_candidate(input: ScoreInput<'_>) -> ScoreResult {
     ScoreResult {
         score: round1(score.clamp(0.0, 100.0)),
         blocked,
+        meets_requirements,
         reasons,
         warnings,
     }
@@ -286,6 +414,7 @@ mod tests {
             coworker_history: &[],
             context_history: &[],
             constraints: &[],
+            requirements: &[],
         });
         assert_eq!(result.score, 50.0);
         assert!(!result.blocked);
@@ -300,6 +429,7 @@ mod tests {
             coworker_history: &[],
             context_history: &[],
             constraints: &[],
+            requirements: &[],
         });
         assert!(result.score > 50.0);
         assert!(result
@@ -323,6 +453,7 @@ mod tests {
             coworker_history: &[],
             context_history: &[],
             constraints: &[],
+            requirements: &[],
         });
         assert!(result
             .warnings
@@ -343,6 +474,7 @@ mod tests {
             coworker_history: &[],
             context_history: &[],
             constraints: &constraints,
+            requirements: &[],
         });
         assert!(result.blocked);
         assert!(result
@@ -363,5 +495,71 @@ mod tests {
             Some(ConstraintKind::Blocked)
         );
         assert_eq!(ConstraintKind::parse("unknown"), None);
+    }
+
+    #[test]
+    fn unmet_requirements_warn_and_penalise_without_blocking() {
+        let requirements = vec![RequirementEvidence {
+            quality_name: "PEG feeding".to_owned(),
+            client_name: "Margaret Chen".to_owned(),
+            status: RequirementStatus::Unknown,
+            severity: RequirementSeverity::Warn,
+            detail: None,
+        }];
+        let result = score_candidate(ScoreInput {
+            client_history: &[],
+            coworker_history: &[],
+            context_history: &[],
+            constraints: &[],
+            requirements: &requirements,
+        });
+        assert!(!result.blocked);
+        assert!(!result.meets_requirements);
+        assert!(result.score < 50.0);
+        assert!(result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("PEG feeding") && warning.contains("Margaret Chen")));
+    }
+
+    #[test]
+    fn block_severity_is_opt_in() {
+        let requirements = vec![RequirementEvidence {
+            quality_name: "PEG feeding".to_owned(),
+            client_name: "Margaret Chen".to_owned(),
+            status: RequirementStatus::Expired,
+            severity: RequirementSeverity::Block,
+            detail: Some("expired 2026-01-01".to_owned()),
+        }];
+        let result = score_candidate(ScoreInput {
+            client_history: &[],
+            coworker_history: &[],
+            context_history: &[],
+            constraints: &[],
+            requirements: &requirements,
+        });
+        assert!(result.blocked);
+        assert!(!result.meets_requirements);
+    }
+
+    #[test]
+    fn expiring_requirements_do_not_penalise() {
+        let requirements = vec![RequirementEvidence {
+            quality_name: "First aid".to_owned(),
+            client_name: "Margaret Chen".to_owned(),
+            status: RequirementStatus::Expiring,
+            severity: RequirementSeverity::Warn,
+            detail: Some("expires 2026-11-20".to_owned()),
+        }];
+        let result = score_candidate(ScoreInput {
+            client_history: &[],
+            coworker_history: &[],
+            context_history: &[],
+            constraints: &[],
+            requirements: &requirements,
+        });
+        assert!(result.meets_requirements);
+        assert_eq!(result.score, 50.0);
+        assert!(!result.warnings.is_empty());
     }
 }

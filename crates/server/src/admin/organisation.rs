@@ -58,8 +58,8 @@ pub async fn page(
     let (jar, token) = csrf::ensure(jar, state.config.environment.is_production());
     let mut body = String::new();
     body.push_str(&html::page_head(
-        "Organisation",
-        "Name and logo shown in the desktop and mobile clients.",
+        "Organisation preferences",
+        "Identity, logo and organisation-wide worker requirements.",
     ));
 
     if params.saved.is_some() {
@@ -127,11 +127,21 @@ pub async fn page(
     }
     body.push_str("</div>");
 
+    match crate::admin::organisation_requirements::section(&state, session.organisation_id, &token)
+        .await
+    {
+        Ok(section) => body.push_str(&section),
+        Err(err) => {
+            tracing::error!(error = %err, "organisation requirements section failed");
+            body.push_str("<div class=\"alert\">Worker requirements could not be loaded.</div>");
+        }
+    }
+
     body.push_str("<h2>Client access</h2>");
     body.push_str("<p class=\"sub\">Clients fetch the profile with <code>GET /api/v1/organisation</code> and the logo bytes with <code>GET /api/v1/organisation/logo</code>, both using their bearer token.</p>");
 
     let html_body = html::layout(
-        "Organisation",
+        "Organisation preferences",
         "/admin/organisation",
         Some(&session.who()),
         &body,

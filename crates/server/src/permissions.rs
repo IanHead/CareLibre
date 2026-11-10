@@ -42,10 +42,11 @@ pub enum Capability {
     RelationshipsRemove = 31,
     RelationshipsIncidentNotes = 32,
     RelationshipTypesManage = 33,
+    WorkerQualitiesManage = 34,
 }
 
 impl Capability {
-    pub const ALL: [Self; 34] = [
+    pub const ALL: [Self; 35] = [
         Self::ContactsRead,
         Self::ContactsWrite,
         Self::RelationshipsRead,
@@ -80,6 +81,7 @@ impl Capability {
         Self::RelationshipsRemove,
         Self::RelationshipsIncidentNotes,
         Self::RelationshipTypesManage,
+        Self::WorkerQualitiesManage,
     ];
 
     #[must_use]
@@ -119,6 +121,7 @@ impl Capability {
             Self::RelationshipsRemove => "relationships.remove",
             Self::RelationshipsIncidentNotes => "relationships.incident_notes",
             Self::RelationshipTypesManage => "relationship_types.manage",
+            Self::WorkerQualitiesManage => "worker_qualities.manage",
         }
     }
 
@@ -159,6 +162,7 @@ impl Capability {
             Self::RelationshipsRemove => "Remove relationships",
             Self::RelationshipsIncidentNotes => "View incident notes",
             Self::RelationshipTypesManage => "Manage relationship types",
+            Self::WorkerQualitiesManage => "Manage worker qualities",
         }
     }
 
@@ -172,6 +176,7 @@ impl Capability {
             | Self::RelationshipsRemove
             | Self::RelationshipsIncidentNotes
             | Self::RelationshipTypesManage
+            | Self::WorkerQualitiesManage
             | Self::OrganisationsRead
             | Self::OrganisationsWrite => "People",
             Self::DivisionsRead

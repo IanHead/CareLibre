@@ -194,10 +194,10 @@ const CONTACT_COLUMNS: &[Column] = &[
     },
     Column {
         name: "display_name",
-        required: true,
+        required: false,
         kind: Kind::Text,
         max_len: Some(160),
-        note: "Full display name",
+        note: "Calculated from names; ignored",
     },
     Column {
         name: "given_name",
@@ -882,26 +882,22 @@ fn validate_row(object: ObjectType, row_number: usize, row: &Row, errors: &mut V
 
     match object {
         ObjectType::Contact => {
-            if row
-                .get("display_name")
+            let given = row
+                .get("given_name")
                 .map(String::as_str)
                 .unwrap_or("")
-                .is_empty()
-                && (row
-                    .get("given_name")
-                    .map(String::as_str)
-                    .unwrap_or("")
-                    .is_empty()
-                    || row
-                        .get("family_name")
-                        .map(String::as_str)
-                        .unwrap_or("")
-                        .is_empty())
-            {
+                .trim();
+            let family = row
+                .get("family_name")
+                .map(String::as_str)
+                .unwrap_or("")
+                .trim();
+            if given.is_empty() && family.is_empty() {
                 errors.push(RowError {
                     row: row_number,
-                    column: Some("display_name".to_owned()),
-                    message: "Provide display_name or both given_name and family_name.".to_owned(),
+                    column: Some("given_name".to_owned()),
+                    message: "Provide given_name or family_name; display_name is calculated."
+                        .to_owned(),
                     value: None,
                 });
             }
@@ -1285,6 +1281,23 @@ fn date(row: &Row, key: &str) -> Option<NaiveDate> {
     optional(row, key).and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
 }
 
+fn contact_display_name(row: &Row) -> String {
+    let preferred = value(row, "preferred_name").trim();
+    let given = value(row, "given_name").trim();
+    let family = value(row, "family_name").trim();
+    let first = if preferred.is_empty() {
+        given
+    } else {
+        preferred
+    };
+    match (first.is_empty(), family.is_empty()) {
+        (false, false) => format!("{first} {family}"),
+        (false, true) => first.to_owned(),
+        (true, false) => family.to_owned(),
+        (true, true) => String::new(),
+    }
+}
+
 async fn upsert_contact(
     tx: &mut Transaction<'_, Postgres>,
     organisation: Uuid,
@@ -1313,7 +1326,7 @@ async fn upsert_contact(
         )
         .bind(id)
         .bind(organisation)
-        .bind(value(row, "display_name"))
+        .bind(contact_display_name(row))
         .bind(optional(row, "given_name"))
         .bind(optional(row, "family_name"))
         .bind(optional(row, "preferred_name"))
@@ -1337,7 +1350,7 @@ async fn upsert_contact(
         .bind(Uuid::now_v7())
         .bind(organisation)
         .bind(external_id)
-        .bind(value(row, "display_name"))
+        .bind(contact_display_name(row))
         .bind(optional(row, "given_name"))
         .bind(optional(row, "family_name"))
         .bind(optional(row, "preferred_name"))

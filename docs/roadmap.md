@@ -53,8 +53,42 @@ slices: each phase ships schema, API, tests and docs together.
 - Copy/paste shifts across days/weeks/workers
 - Social graph / learned ranking for worker ↔ client matching
 
+### Worker–client affinity (next)
+
+- **Client preferences about workers** — record preferences at intake, for
+  example “older worker”, “bubbly/talkative”, “quiet”, “female”, or “same
+  cultural background”. These are the client’s preferences, not worker traits:
+  workers are never asked to declare personality, age or similar attributes.
+- **Learned affinity, not declarations** — when a worker works repeated
+  shifts with clients who hold a preference, that history becomes evidence.
+  The scorer explains it as, for example, “6 attended shifts with clients who
+  prefer a bubbly, talkative worker”.
+- **Relationship-aware recommendations** — also consider whether the worker has
+  successfully supported other clients connected to the current client
+  (family, housemates, shared support coordinator, same site or service). This
+  reuses the existing relationship graph and assignment history rather than
+  adding a second social model.
+- **Advisory and explainable** — preference and network evidence adjusts ranking
+  and adds reasons or warnings; it never hard-filters unless an explicit block
+  is recorded. The coordinator remains the decision-maker.
+- **Sensitive preferences** — age, gender, cultural background and personality
+  descriptors are sensitive. Require a reason or legal basis, keep the evidence
+  aggregate rather than exposing an inferred worker trait, and avoid
+  discriminatory hard constraints.
+- **Schema sketch** — `client_worker_preferences` (client, dimension, value,
+  strength, reason), with derived views such as `worker_preference_affinity`
+  and `worker_client_network_affinity`. No worker trait columns.
+- **Scoring** — extend `ScoreInput` with `PreferenceEvidence` and
+  `NetworkAffinityEvidence`, and surface reasons such as “previously worked
+  with three clients connected to this client”.
+
 ## Phase 4 — Money and integrations
 
+- **Funding sources** — NDIS, Support at Home, CHSP, private and arbitrary sources with a claiming model ✅
+- **Client funding packages** — plan/package references, dates, budgets and utilisation ✅
+- **Quotes and service agreements** — line items, rates, recurring schedules and finalise-to-roster generation ✅
+- Claims submission and remittance for NDIS, Support at Home and CHSP
+- Price-guide imports and plan budget alerts
 - Natural-language quoting
 - Invoicing and claims (NDIS/Aged Care)
 - Xero, QuickBooks, Salesforce, Power BI connectors

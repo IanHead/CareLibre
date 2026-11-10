@@ -25,6 +25,7 @@ use crate::{
     error::AppError,
     permissions::Capability,
     state::AppState,
+    worker_qualities::{normalise_gender, normalise_languages},
 };
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,11 @@ pub struct ContactDto {
     pub preferred_name: Option<String>,
     pub pronouns: Option<String>,
     pub date_of_birth: Option<NaiveDate>,
+    /// `female`, `male`, `non_binary`, `prefer_not_to_say` or absent.
+    pub gender: Option<String>,
+    /// Languages spoken, stored once as ordinary profile data.
+    pub languages: Vec<String>,
+    pub cultural_identity: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
     pub notes: Option<String>,
@@ -103,6 +109,21 @@ pub struct ContactDetailDto {
     pub contact: ContactDto,
     pub custom_fields: Vec<CustomFieldDto>,
     pub custom_values: BTreeMap<String, Value>,
+    /// The organisation's quality catalogue, so the editor can offer skills
+    /// and requirements without a second request.
+    pub quality_catalogue: Vec<super::worker_qualities::WorkerQualityDto>,
+    /// Skills and training this contact holds. Empty for a client.
+    pub quality_values: Vec<super::worker_qualities::WorkerQualityValueDto>,
+    /// Requirements this contact places on workers. Empty for a worker.
+    pub requirements: Vec<super::worker_qualities::ClientRequirementDto>,
+    /// Organisation funding source catalogue.
+    pub funding_sources: Vec<crate::funding::FundingSource>,
+    /// Funding packages held by this client. Empty for a worker.
+    pub funding_packages: Vec<crate::funding::FundingPackage>,
+    /// Quotes and service agreements for this client. Empty for a worker.
+    pub agreements: Vec<crate::funding::Agreement>,
+    /// Active services available for agreement lines.
+    pub funding_services: Vec<crate::funding::ServiceRef>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,12 +137,14 @@ pub struct ListParams {
 
 #[derive(Debug, Deserialize)]
 pub struct ContactWrite {
-    pub display_name: String,
     pub given_name: Option<String>,
     pub family_name: Option<String>,
     pub preferred_name: Option<String>,
     pub pronouns: Option<String>,
     pub date_of_birth: Option<NaiveDate>,
+    pub gender: Option<String>,
+    pub languages: Option<Vec<String>>,
+    pub cultural_identity: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
     pub notes: Option<String>,
@@ -143,6 +166,9 @@ struct ContactRow {
     preferred_name: Option<String>,
     pronouns: Option<String>,
     date_of_birth: Option<NaiveDate>,
+    gender: Option<String>,
+    languages: Vec<String>,
+    cultural_identity: Option<String>,
     email: Option<String>,
     phone: Option<String>,
     notes: Option<String>,
@@ -282,7 +308,7 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<ContactDetailDto>), AppError> {
     auth.require(Capability::ContactsWrite)?;
 
-    let (display_name, details, active) = validate_write(&payload)?;
+    let write = validate_write(&payload)?;
     let values =
         validate_custom_values(&state, auth.organisation_id, payload.custom_fields.as_ref())
             .await?;
@@ -293,22 +319,26 @@ pub async fn create(
     sqlx::query(
         "INSERT INTO contacts
             (id, organisation_id, display_name, given_name, family_name, preferred_name,
-             pronouns, date_of_birth, email, phone, notes, details, is_active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+             pronouns, date_of_birth, gender, languages, cultural_identity,
+             email, phone, notes, details, is_active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
     )
     .bind(id)
     .bind(auth.organisation_id)
-    .bind(&display_name)
+    .bind(&write.display_name)
     .bind(trim_optional(payload.given_name.as_deref()))
     .bind(trim_optional(payload.family_name.as_deref()))
     .bind(trim_optional(payload.preferred_name.as_deref()))
     .bind(trim_optional(payload.pronouns.as_deref()))
     .bind(payload.date_of_birth)
+    .bind(write.gender)
+    .bind(&write.languages)
+    .bind(&write.cultural_identity)
     .bind(trim_optional(payload.email.as_deref()))
     .bind(trim_optional(payload.phone.as_deref()))
     .bind(trim_optional(payload.notes.as_deref()))
-    .bind(SqlJson(details))
-    .bind(active)
+    .bind(SqlJson(write.details))
+    .bind(write.active)
     .execute(&mut *tx)
     .await?;
 
@@ -327,7 +357,7 @@ pub async fn update(
 ) -> Result<Json<ContactDetailDto>, AppError> {
     auth.require(Capability::ContactsWrite)?;
 
-    let (display_name, details, active) = validate_write(&payload)?;
+    let write = validate_write(&payload)?;
     let values =
         validate_custom_values(&state, auth.organisation_id, payload.custom_fields.as_ref())
             .await?;
@@ -337,21 +367,25 @@ pub async fn update(
     let changed = sqlx::query(
         "UPDATE contacts SET
             display_name = $1, given_name = $2, family_name = $3, preferred_name = $4,
-            pronouns = $5, date_of_birth = $6, email = $7, phone = $8, notes = $9,
-            details = $10, is_active = $11
-         WHERE id = $12 AND organisation_id = $13",
+            pronouns = $5, date_of_birth = $6, gender = $7, languages = $8,
+            cultural_identity = $9, email = $10, phone = $11, notes = $12,
+            details = $13, is_active = $14
+         WHERE id = $15 AND organisation_id = $16",
     )
-    .bind(&display_name)
+    .bind(&write.display_name)
     .bind(trim_optional(payload.given_name.as_deref()))
     .bind(trim_optional(payload.family_name.as_deref()))
     .bind(trim_optional(payload.preferred_name.as_deref()))
     .bind(trim_optional(payload.pronouns.as_deref()))
     .bind(payload.date_of_birth)
+    .bind(write.gender)
+    .bind(&write.languages)
+    .bind(&write.cultural_identity)
     .bind(trim_optional(payload.email.as_deref()))
     .bind(trim_optional(payload.phone.as_deref()))
     .bind(trim_optional(payload.notes.as_deref()))
-    .bind(SqlJson(details))
-    .bind(active)
+    .bind(SqlJson(write.details))
+    .bind(write.active)
     .bind(id)
     .bind(auth.organisation_id)
     .execute(&mut *tx)
@@ -383,7 +417,8 @@ pub async fn list_custom_fields(
 
 /// Contacts joined with their relationship-derived client/worker flags.
 const CONTACT_SELECT: &str = "SELECT id, display_name, given_name, family_name, preferred_name,
-    pronouns, date_of_birth, email, phone, notes, is_active, details, updated_at,
+    pronouns, date_of_birth, gender, languages, cultural_identity, email, phone, notes,
+    is_active, details, updated_at,
     roles.is_client, roles.is_worker
     FROM contacts
     JOIN contact_care_roles roles ON roles.contact_id = contacts.id";
@@ -422,6 +457,19 @@ async fn load_detail(
         contact: contact_dto(row),
         custom_fields: definitions.into_iter().map(definition_dto).collect(),
         custom_values,
+        quality_catalogue: super::worker_qualities::load_catalogue(&state.db, organisation_id)
+            .await?
+            .into_iter()
+            .map(super::worker_qualities::quality_dto)
+            .collect(),
+        quality_values: super::worker_qualities::load_values(&state.db, organisation_id, id)
+            .await?,
+        requirements: super::worker_qualities::load_requirements(&state.db, organisation_id, id)
+            .await?,
+        funding_sources: crate::funding::load_sources(&state.db, organisation_id).await?,
+        funding_packages: crate::funding::load_packages(&state.db, organisation_id, id).await?,
+        agreements: crate::funding::load_agreements(&state.db, organisation_id, id).await?,
+        funding_services: crate::funding::load_service_refs(&state.db, organisation_id).await?,
     })
 }
 
@@ -615,6 +663,9 @@ fn contact_dto(row: ContactRow) -> ContactDto {
         preferred_name: row.preferred_name,
         pronouns: row.pronouns,
         date_of_birth: row.date_of_birth,
+        gender: row.gender,
+        languages: row.languages,
+        cultural_identity: row.cultural_identity,
         email: row.email,
         phone: row.phone,
         notes: row.notes,
@@ -639,14 +690,44 @@ fn definition_dto(row: DefinitionRow) -> CustomFieldDto {
     }
 }
 
-fn validate_write(payload: &ContactWrite) -> Result<(String, Value, bool), AppError> {
-    let display_name = payload.display_name.trim().to_owned();
-    let length = display_name.chars().count();
-    if length == 0 || length > 160 {
+struct ValidatedContactWrite {
+    display_name: String,
+    details: Value,
+    active: bool,
+    gender: Option<&'static str>,
+    languages: Vec<String>,
+    cultural_identity: Option<String>,
+}
+
+fn validate_write(payload: &ContactWrite) -> Result<ValidatedContactWrite, AppError> {
+    let given_name = trim_optional(payload.given_name.as_deref());
+    let family_name = trim_optional(payload.family_name.as_deref());
+    let preferred_name = trim_optional(payload.preferred_name.as_deref());
+    let display_name = display_name_for(
+        preferred_name.as_deref(),
+        given_name.as_deref(),
+        family_name.as_deref(),
+    )
+    .ok_or_else(|| AppError::validation("a contact needs a given or family name"))?;
+    if display_name.chars().count() > 160 {
         return Err(AppError::validation(
-            "display_name must be between 1 and 160 characters",
+            "the calculated display name must be 160 characters or fewer",
         ));
     }
+
+    let gender = match payload
+        .gender
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => Some(normalise_gender(value).ok_or_else(|| {
+            AppError::validation("gender must be female, male, non_binary or prefer_not_to_say")
+        })?),
+        None => None,
+    };
+    let languages = normalise_languages(payload.languages.clone().unwrap_or_default());
+    let cultural_identity = trim_optional(payload.cultural_identity.as_deref());
 
     let mut details = payload.details.clone().unwrap_or_else(|| json!({}));
     let Some(fields) = details.as_object_mut() else {
@@ -654,8 +735,34 @@ fn validate_write(payload: &ContactWrite) -> Result<(String, Value, bool), AppEr
     };
     // Client and worker come from relationships; never store a role hint.
     fields.remove("contact_role");
+    // Intrinsic profile data now has first-class columns. Do not keep a second
+    // copy in details, or matching would silently read stale data.
+    fields.remove("gender");
+    fields.remove("languages");
+    fields.remove("cultural_identity");
 
-    Ok((display_name, details, payload.is_active.unwrap_or(true)))
+    Ok(ValidatedContactWrite {
+        display_name,
+        details,
+        active: payload.is_active.unwrap_or(true),
+        gender,
+        languages,
+        cultural_identity,
+    })
+}
+
+fn display_name_for(
+    preferred_name: Option<&str>,
+    given_name: Option<&str>,
+    family_name: Option<&str>,
+) -> Option<String> {
+    let first = preferred_name.or(given_name);
+    match (first, family_name) {
+        (Some(first), Some(family)) => Some(format!("{first} {family}")),
+        (Some(first), None) => Some(first.to_owned()),
+        (None, Some(family)) => Some(family.to_owned()),
+        (None, None) => None,
+    }
 }
 
 async fn validate_custom_values(
