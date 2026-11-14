@@ -20,7 +20,7 @@ together.
   - [ ] Bulk actions on relationships
   - [ ] Sanity checking on relationship actions (e.g. are you really sure you
     want to change this person's father?)
-  - [ ] Visualise relationships as a constellation in their profile
+  - [x] Visualise relationships as a constellation in their profile
     (collapsible)
 - [x] Wizard-style intake processes
 - [ ] Intake, referrals, waitlists, enquiries
