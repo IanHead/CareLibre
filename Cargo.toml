@@ -43,7 +43,7 @@ tower-http = { version = "0.6", features = ["trace", "cors", "compression-gzip",
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 [workspace.lints.rust]
