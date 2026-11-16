@@ -22,6 +22,20 @@ It refuses to run without `--confirm` and refuses when `APP_ENV=production`.
 It only touches the `blue-dreams-care` tenant; every other organisation is left
 alone.
 
+## From the server admin
+
+Owners and administrators with **Settings manage** can rebuild the same dataset
+from **System → Demo data** in the server admin (`/admin/demo-data`).
+
+The page shows how many contacts, relationships, shifts, funding agreements and
+demo users will be deleted, and refuses to run until the box is ticked and
+`blue-dreams-care` is typed exactly. It runs the same seed as `seed-demo`, and
+the reloaded demo users are shown on the result page.
+
+Because the seed deletes the demo users, a session signed in as one of them ends
+when the seed finishes. Production installs disable the page by default; set
+`DEMO_SEED_ENABLED=true` and restart to allow it on a demonstration server.
+
 The seed is deterministic (`StdRng` seed `20261107`), so names and structure are
 stable across runs; row IDs differ.
 

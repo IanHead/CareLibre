@@ -8,6 +8,7 @@
 pub mod auth;
 pub mod csrf;
 pub mod custom_fields;
+pub mod demo_data;
 pub mod erd;
 pub mod funding_sources;
 pub mod html;
@@ -66,6 +67,7 @@ pub fn router() -> Router<AppState> {
             "/funding-sources/{id}/active",
             post(funding_sources::set_active),
         )
+        .route("/demo-data", get(demo_data::page).post(demo_data::seed))
         .route("/relationships", get(network::page))
         .route(
             "/relationship-types",

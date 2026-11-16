@@ -25,6 +25,7 @@ fn test_state() -> AppState {
         access_token_ttl: Duration::from_secs(900),
         refresh_token_ttl: Duration::from_secs(3600),
         cors_allowed_origins: Vec::new(),
+        demo_seed_enabled: false,
     };
 
     let pool = PgPoolOptions::new()

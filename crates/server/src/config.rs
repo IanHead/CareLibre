@@ -41,6 +41,9 @@ pub struct Config {
     pub access_token_ttl: Duration,
     pub refresh_token_ttl: Duration,
     pub cors_allowed_origins: Vec<String>,
+    /// Allow the admin UI to rebuild the demo dataset. Defaults to on in
+    /// development and off in production.
+    pub demo_seed_enabled: bool,
 }
 
 impl Config {
@@ -112,6 +115,8 @@ impl Config {
             bail!("CORS_ALLOWED_ORIGINS may not contain '*' when APP_ENV=production");
         }
 
+        let demo_seed_enabled = parse_bool("DEMO_SEED_ENABLED", !environment.is_production())?;
+
         Ok(Self {
             bind_addr,
             environment,
@@ -122,6 +127,7 @@ impl Config {
             access_token_ttl,
             refresh_token_ttl,
             cors_allowed_origins,
+            demo_seed_enabled,
         })
     }
 }

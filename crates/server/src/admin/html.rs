@@ -24,6 +24,8 @@ pub struct Who<'a> {
     pub organisation: &'a str,
     pub role: &'a str,
     pub capabilities: crate::permissions::CapabilitySet,
+    /// Whether the server allows rebuilding the demo dataset from the admin.
+    pub demo_seed_enabled: bool,
 }
 
 /// Full page shell. `active` is the nav href to highlight.
@@ -110,6 +112,9 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
                 "Funding sources",
                 active,
             ));
+            if who.demo_seed_enabled {
+                out.push_str(&nav_item("/admin/demo-data", "Demo data", active));
+            }
         }
         if capabilities.contains(crate::permissions::Capability::SchemaView) {
             out.push_str(&nav_item("/admin/schema", "Database", active));

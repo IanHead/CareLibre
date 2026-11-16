@@ -62,6 +62,7 @@ impl Fixture {
             access_token_ttl: Duration::from_secs(900),
             refresh_token_ttl: Duration::from_secs(3600),
             cors_allowed_origins: Vec::new(),
+            demo_seed_enabled: false,
         };
         let router = api::router(AppState::new(pool.clone(), config));
 

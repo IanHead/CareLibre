@@ -9,6 +9,7 @@ pub mod auth;
 pub mod config;
 pub mod custom_fields;
 pub mod db;
+pub mod demo;
 pub mod error;
 pub mod funding;
 pub mod import;

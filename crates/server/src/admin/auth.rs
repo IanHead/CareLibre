@@ -38,6 +38,8 @@ pub struct AdminSession {
     pub full_name: String,
     pub organisation_name: String,
     pub organisation_slug: String,
+    /// Whether the server allows the admin UI to rebuild the demo dataset.
+    pub demo_seed_enabled: bool,
 }
 
 #[derive(Debug, FromRow)]
@@ -162,6 +164,7 @@ impl FromRequestParts<AppState> for AdminSession {
             full_name: row.full_name,
             organisation_name: row.organisation_name,
             organisation_slug: row.organisation_slug,
+            demo_seed_enabled: state.config.demo_seed_enabled,
         })
     }
 }
@@ -174,6 +177,7 @@ impl AdminSession {
             organisation: &self.organisation_name,
             role: self.role_label(),
             capabilities: self.capabilities,
+            demo_seed_enabled: self.demo_seed_enabled,
         }
     }
 
