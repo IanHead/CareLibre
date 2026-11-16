@@ -14,6 +14,14 @@ deployment tooling. It is designed to be used with the
 > interfaces are usable, but expect them to change as the design settles. See
 > [`docs/roadmap.md`](docs/roadmap.md) for what is done and what is next.
 
+## Download
+
+Prebuilt server binaries for Windows, Linux and macOS are attached to each
+[release](https://github.com/IanHead/CareLibre/releases/latest). Each archive contains
+`carelibre-server`, the `seed-demo` helper, the SQL migrations, `.env.example`, the README
+and the licence. The server still needs PostgreSQL 16+; set `DATABASE_URL` to point it at
+your database.
+
 ## Desktop client
 
 [CareLibre Desktop](https://github.com/IanHead/CareLibre-Desktop) is the primary
