@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod contacts;
+pub mod external_organisations;
 pub mod funding;
 pub mod health;
 pub mod openapi;
@@ -62,6 +63,16 @@ fn v1_routes() -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(
                     crate::organisation::MAX_LOGO_BYTES + 64 * 1024,
                 )),
+        )
+        .route(
+            "/organisations",
+            get(external_organisations::list).post(external_organisations::create),
+        )
+        .route(
+            "/organisations/{id}",
+            get(external_organisations::get)
+                .patch(external_organisations::update)
+                .delete(external_organisations::remove),
         )
         .route("/contacts", get(contacts::list).post(contacts::create))
         .route("/contacts/{id}", get(contacts::get).patch(contacts::update))

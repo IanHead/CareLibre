@@ -93,6 +93,17 @@ async fn relationships_require_authentication() {
 }
 
 #[tokio::test]
+async fn external_organisations_require_authentication() {
+    for uri in [
+        "/api/v1/organisations",
+        "/api/v1/organisations/00000000-0000-0000-0000-000000000000",
+    ] {
+        let response = get(uri).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
+    }
+}
+
+#[tokio::test]
 async fn organisation_branding_requires_authentication() {
     for uri in ["/api/v1/organisation", "/api/v1/organisation/logo"] {
         let response = get(uri).await;
