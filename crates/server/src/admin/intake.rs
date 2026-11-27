@@ -111,6 +111,7 @@ async fn list_page(
          <label>Name<input name=\"name\" required placeholder=\"Client — standard\"></label>\
          <label>Subject kind<select name=\"subject_kind\">{}</select></label>\
          <label>Variant<input name=\"variant\" placeholder=\"standard\"></label>\
+         <label>Description<textarea name=\"description\" rows=\"2\" placeholder=\"What is this path for?\"></textarea></label>\
          <label>Parent flow<select name=\"parent_flow_id\"><option value=\"\">None</option>{}</select></label>\
          <label>Clone stages from<select name=\"clone_from_flow_id\"><option value=\"\">Same subject kind default</option>{}</select></label>\
          </div>\
@@ -152,6 +153,16 @@ async fn list_page(
                         .find(|candidate| candidate.id == parent)
                         .map_or("another flow", |candidate| candidate.name.as_str())
                 )
+            ));
+        }
+        if let Some(description) = flow
+            .description
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            body.push_str(&format!(
+                "<p class=\"sub\">{}</p>",
+                html::escape(description)
             ));
         }
         body.push_str(
@@ -369,6 +380,7 @@ pub async fn flow_page(
          <div class=\"grid\">\
          <label>Name<input name=\"name\" required value=\"{}\"></label>\
          <label>Variant<input name=\"variant\" value=\"{}\"></label>\
+         <label>Description<textarea name=\"description\" rows=\"2\">{}</textarea></label>\
          </div>\
          <label class=\"check\"><input type=\"checkbox\" name=\"is_active\" value=\"1\" {}> Active</label>\
          <label class=\"check\"><input type=\"checkbox\" name=\"is_default\" value=\"1\" {}> Default for this subject kind and variant</label>\
@@ -378,6 +390,7 @@ pub async fn flow_page(
         html::escape(&token),
         html::escape(&flow.name),
         html::escape(flow.variant.as_deref().unwrap_or("")),
+        html::escape(flow.description.as_deref().unwrap_or("")),
         if flow.is_active { "checked" } else { "" },
         if flow.is_default { "checked" } else { "" },
     ));
@@ -700,6 +713,7 @@ async fn create_flow_inner(
     let parent_flow_id = parse_uuid(form.get("parent_flow_id"));
     let clone_from_flow_id = parse_uuid(form.get("clone_from_flow_id"));
     let variant = optional_text(form, "variant");
+    let description = optional_text(form, "description");
     let is_default = form.contains_key("is_default");
 
     let mut tx = state.db.begin().await.map_err(|err| err.to_string())?;
@@ -708,7 +722,7 @@ async fn create_flow_inner(
         "INSERT INTO intake_flows
             (id, organisation_id, parent_flow_id, key, name, subject_kind, variant,
              description, is_default, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8, true)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)",
     )
     .bind(id)
     .bind(session.organisation_id)
@@ -717,6 +731,7 @@ async fn create_flow_inner(
     .bind(&name)
     .bind(&subject_kind)
     .bind(&variant)
+    .bind(&description)
     .bind(is_default)
     .execute(&mut *tx)
     .await
@@ -792,16 +807,18 @@ pub async fn update_flow(
         Err(err) => return failure(&err.to_string()),
     };
     let variant = optional_text(&form, "variant");
+    let description = optional_text(&form, "description");
     let is_active = form.contains_key("is_active");
     let is_default = form.contains_key("is_default");
 
     let result = sqlx::query(
         "UPDATE intake_flows
-         SET name = $1, variant = $2, is_active = $3, is_default = $4
-         WHERE organisation_id = $5 AND id = $6",
+         SET name = $1, variant = $2, description = $3, is_active = $4, is_default = $5
+         WHERE organisation_id = $6 AND id = $7",
     )
     .bind(&name)
     .bind(&variant)
+    .bind(&description)
     .bind(is_active)
     .bind(is_default)
     .bind(session.organisation_id)
