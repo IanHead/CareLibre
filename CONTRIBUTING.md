@@ -14,7 +14,7 @@ make test
 make lint
 ```
 
-Before opening a pull request:
+CI runs only for releases. Run these checks locally before opening a pull request:
 
 1. `cargo fmt --all`
 2. `cargo clippy --workspace --all-targets -- -D warnings`
@@ -36,6 +36,16 @@ Before opening a pull request:
   and register them in `api/openapi.rs`.
 - **Secrets** never enter the repository. `.env` is ignored; CI uses throwaway
   values.
+
+## Releases
+
+Before tagging a release, add `docs/release-notes/vX.Y.Z.md` using
+`docs/release-notes/TEMPLATE.md`. The release workflow refuses to publish without
+the `New`, `Changed` and `Fixed` sections.
+
+Write each bullet for a care provider, not a developer: describe what they can
+now do, what works differently, or what no longer goes wrong. Avoid commit
+hashes, file names, function names, API details and implementation jargon.
 
 ## Commit messages
 

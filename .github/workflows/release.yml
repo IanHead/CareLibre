@@ -7,6 +7,9 @@ name: Release
 # migrations, an example environment file, the README and the licence. A single
 # publish job collects the archives, writes SHA-256 checksums and attaches
 # everything to the GitHub release for that tag.
+#
+# Release notes are hand-written in docs/release-notes/<tag>.md. The workflow
+# refuses to publish without the New, Changed and Fixed sections.
 
 on:
   push:
@@ -29,8 +32,39 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  release-notes:
+    name: Release notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate release notes
+        shell: bash
+        run: |
+          file="docs/release-notes/${{ inputs.tag || github.ref_name }}.md"
+          if [ ! -f "$file" ]; then
+            echo "::error::Missing $file. Create it from docs/release-notes/TEMPLATE.md."
+            exit 1
+          fi
+          for section in New Changed Fixed; do
+            if ! tr -d '\r' < "$file" | grep -qx "## ${section}"; then
+              echo "::error::$file is missing the '## $section' section."
+              exit 1
+            fi
+          done
+
+  checks:
+    name: Checks
+    needs: release-notes
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
+
   build:
     name: ${{ matrix.name }}
+    needs: checks
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -105,6 +139,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
       - name: Download archives
         uses: actions/download-artifact@v4
         with:
@@ -122,6 +160,6 @@ jobs:
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: CareLibre Server ${{ inputs.tag || github.ref_name }}
-          generate_release_notes: true
+          body_path: docs/release-notes/${{ inputs.tag || github.ref_name }}.md
           fail_on_unmatched_files: true
           files: artifacts/*
