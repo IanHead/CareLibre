@@ -1066,9 +1066,10 @@ fn render_form(page: FormPage<'_>) -> String {
     ));
 
     body.push_str("<label for=\"default_value\">Default value <span class=\"muted\">(optional)</span></label>");
-    body.push_str(&format!(
-        "<input id=\"default_value\" name=\"default_value\" value=\"{}\">",
-        html::escape(&page.values.default_value)
+    body.push_str(&default_value_input(
+        &page.values.data_type,
+        &page.values.default_value,
+        &page.values.options,
     ));
 
     body.push_str(&format!(
@@ -1130,4 +1131,56 @@ fn entity_label<'a>(entities: &'a [EntityOption], entity_type: &'a str) -> &'a s
         .iter()
         .find(|entity| entity.entity_type == entity_type)
         .map_or(entity_type, |entity| entity.label.as_str())
+}
+
+fn default_value_input(data_type: &str, value: &str, options: &str) -> String {
+    let value = html::escape(value);
+    match FieldType::parse(data_type) {
+        Some(FieldType::Boolean) => format!(
+            "<div class=\"checkbox\"><input id=\"default_value\" name=\"default_value\" type=\"checkbox\" value=\"true\"{}><label for=\"default_value\">Checked by default</label></div>",
+            if value == "true" { " checked" } else { "" }
+        ),
+        Some(FieldType::Integer) => format!(
+            "<input id=\"default_value\" name=\"default_value\" type=\"number\" step=\"1\" value=\"{value}\">"
+        ),
+        Some(FieldType::Decimal) => format!(
+            "<input id=\"default_value\" name=\"default_value\" type=\"number\" step=\"any\" value=\"{value}\">"
+        ),
+        Some(FieldType::Date) => format!(
+            "<input id=\"default_value\" name=\"default_value\" type=\"date\" value=\"{value}\">"
+        ),
+        Some(FieldType::DateTime) => format!(
+            "<input id=\"default_value\" name=\"default_value\" type=\"datetime-local\" value=\"{value}\">"
+        ),
+        Some(FieldType::Email) => format!(
+            "<input id=\"default_value\" name=\"default_value\" type=\"email\" value=\"{value}\">"
+        ),
+        Some(FieldType::Phone) => format!(
+            "<input id=\"default_value\" name=\"default_value\" type=\"tel\" value=\"{value}\">"
+        ),
+        Some(FieldType::Url) => format!(
+            "<input id=\"default_value\" name=\"default_value\" type=\"url\" value=\"{value}\">"
+        ),
+        Some(FieldType::Select) => {
+            let mut input = String::from(
+                "<select id=\"default_value\" name=\"default_value\"><option value=\"\">No default</option>",
+            );
+            for option in options.lines().map(str::trim).filter(|option| !option.is_empty()) {
+                input.push_str(&format!(
+                    "<option value=\"{}\"{}>{}</option>",
+                    html::escape(option),
+                    if option == value { " selected" } else { "" },
+                    html::escape(option)
+                ));
+            }
+            input.push_str("</select>");
+            input
+        }
+        Some(FieldType::LongText) => format!(
+            "<textarea id=\"default_value\" name=\"default_value\" rows=\"3\">{value}</textarea>"
+        ),
+        _ => format!(
+            "<input id=\"default_value\" name=\"default_value\" value=\"{value}\">"
+        ),
+    }
 }
