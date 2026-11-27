@@ -1,5 +1,6 @@
 //! Intake domain vocabulary shared by the API, admin UI and tests.
 
+pub mod cases;
 pub mod fields;
 
 pub use fields::{builtin_field, builtin_field_keys, builtin_fields, FieldSpec};

@@ -44,6 +44,12 @@ pub enum AppError {
     Conflict(String),
 
     #[error("{message}")]
+    ConflictWithDetails {
+        message: String,
+        details: serde_json::Value,
+    },
+
+    #[error("{message}")]
     Validation {
         message: String,
         details: Option<serde_json::Value>,
@@ -86,6 +92,14 @@ impl AppError {
     }
 
     #[must_use]
+    pub fn conflict_with_details(message: impl Into<String>, details: serde_json::Value) -> Self {
+        Self::ConflictWithDetails {
+            message: message.into(),
+            details,
+        }
+    }
+
+    #[must_use]
     pub fn validation(message: impl Into<String>) -> Self {
         Self::Validation {
             message: message.into(),
@@ -123,6 +137,12 @@ impl AppError {
             Self::Forbidden(message) => (StatusCode::FORBIDDEN, "forbidden", message.clone(), None),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message.clone(), None),
             Self::Conflict(message) => (StatusCode::CONFLICT, "conflict", message.clone(), None),
+            Self::ConflictWithDetails { message, details } => (
+                StatusCode::CONFLICT,
+                "conflict",
+                message.clone(),
+                Some(details.clone()),
+            ),
             Self::Validation { message, details } => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "validation_failed",

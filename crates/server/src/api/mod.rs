@@ -6,6 +6,8 @@ pub mod external_organisations;
 pub mod funding;
 pub mod health;
 pub mod intake;
+pub mod intake_cases;
+pub mod notifications;
 pub mod openapi;
 pub mod organisation;
 pub mod relationship_types;
@@ -52,6 +54,12 @@ fn v1_routes() -> Router<AppState> {
         .route("/auth/refresh", post(auth::refresh))
         .route("/auth/logout", post(auth::logout))
         .route("/me", get(auth::me))
+        .route("/notifications", get(notifications::list))
+        .route(
+            "/notifications/read-all",
+            post(notifications::mark_all_read),
+        )
+        .route("/notifications/{id}/read", post(notifications::mark_read))
         .route(
             "/organisation",
             get(organisation::get_profile).patch(organisation::update_profile),
@@ -77,6 +85,41 @@ fn v1_routes() -> Router<AppState> {
         )
         .route("/contacts", get(contacts::list).post(contacts::create))
         .route("/contacts/{id}", get(contacts::get).patch(contacts::update))
+        .route(
+            "/contacts/{id}/status",
+            axum::routing::patch(intake_cases::update_contact_status),
+        )
+        .route(
+            "/contacts/{id}/status-history",
+            get(intake_cases::contact_status_history),
+        )
+        .route(
+            "/intake/contact-matches",
+            get(intake_cases::contact_matches),
+        )
+        .route("/intake/board", get(intake_cases::board))
+        .route(
+            "/intake/cases",
+            get(intake_cases::list_cases).post(intake_cases::create_case),
+        )
+        .route(
+            "/intake/cases/{id}",
+            get(intake_cases::get_case).patch(intake_cases::update_case),
+        )
+        .route(
+            "/intake/cases/{id}/transition",
+            post(intake_cases::transition_case),
+        )
+        .route(
+            "/intake/cases/{id}/checklist/{item_id}",
+            post(intake_cases::toggle_checklist_item),
+        )
+        .route("/intake/cases/{id}/cancel", post(intake_cases::cancel_case))
+        .route(
+            "/intake/cases/{id}/archive",
+            post(intake_cases::archive_case),
+        )
+        .route("/intake/cases/{id}/timeline", get(intake_cases::timeline))
         .route("/intake/field-catalog", get(intake::field_catalog))
         .route(
             "/intake/flows",

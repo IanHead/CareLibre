@@ -138,6 +138,23 @@ async fn rostering_requires_authentication() {
 }
 
 #[tokio::test]
+async fn intake_requires_authentication() {
+    for uri in [
+        "/api/v1/intake/board?flow_id=00000000-0000-0000-0000-000000000000",
+        "/api/v1/intake/cases",
+        "/api/v1/intake/contact-matches?email=a@example.com",
+        "/api/v1/intake/flows",
+        "/api/v1/intake/field-catalog",
+        "/api/v1/intake/assignees",
+        "/api/v1/notifications",
+        "/api/v1/contacts/00000000-0000-0000-0000-000000000000/status-history",
+    ] {
+        let response = get(uri).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
+    }
+}
+
+#[tokio::test]
 async fn admin_network_requires_authentication() {
     let response = get("/admin/relationships").await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -162,6 +179,13 @@ async fn openapi_document_is_served() {
     assert!(json["paths"]["/api/v1/contacts/{id}/requirements"].is_object());
     assert!(json["paths"]["/api/v1/organisation"].is_object());
     assert!(json["paths"]["/api/v1/organisation/logo"].is_object());
+    assert!(json["paths"]["/api/v1/intake/flows"].is_object());
+    assert!(json["paths"]["/api/v1/intake/board"].is_object());
+    assert!(json["paths"]["/api/v1/intake/cases"].is_object());
+    assert!(json["paths"]["/api/v1/intake/cases/{id}/transition"].is_object());
+    assert!(json["paths"]["/api/v1/intake/contact-matches"].is_object());
+    assert!(json["paths"]["/api/v1/contacts/{id}/status"].is_object());
+    assert!(json["paths"]["/api/v1/notifications"].is_object());
 }
 
 #[tokio::test]

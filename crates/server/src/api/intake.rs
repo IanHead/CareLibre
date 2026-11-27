@@ -624,7 +624,7 @@ async fn load_flow(db: &PgPool, organisation_id: Uuid, id: Uuid) -> Result<FlowD
         .ok_or_else(|| AppError::not_found("intake flow not found"))
 }
 
-async fn descendant_divisions(
+pub(crate) async fn descendant_divisions(
     db: &PgPool,
     organisation_id: Uuid,
     division_id: Uuid,
