@@ -114,6 +114,7 @@ pub struct FlowDto {
     pub is_default: bool,
     pub is_active: bool,
     pub sort_order: i32,
+    pub stage_movement: String,
     pub stages: Vec<StageDto>,
 }
 
@@ -145,6 +146,7 @@ pub struct FlowCreate {
     pub parent_flow_id: Option<Uuid>,
     pub description: Option<String>,
     pub division_id: Option<Uuid>,
+    pub stage_movement: Option<String>,
     #[serde(default)]
     pub is_default: bool,
     /// Copy stages and policy from this flow. When omitted, the server clones
@@ -162,6 +164,7 @@ pub struct FlowUpdate {
     pub is_default: Option<bool>,
     pub is_active: Option<bool>,
     pub sort_order: Option<i32>,
+    pub stage_movement: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -251,6 +254,7 @@ struct FlowRow {
     is_default: bool,
     is_active: bool,
     sort_order: i32,
+    stage_movement: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -452,7 +456,7 @@ pub(crate) async fn load_flows(
 ) -> Result<Vec<FlowDto>, AppError> {
     let flows = sqlx::query_as::<_, FlowRow>(
         "SELECT id, key, name, subject_kind, variant, parent_flow_id, description,
-                division_id, is_default, is_active, sort_order
+                division_id, is_default, is_active, sort_order, stage_movement
          FROM intake_flows
          WHERE organisation_id = $1 AND ($2 OR is_active)
          ORDER BY sort_order, name, id",
@@ -610,6 +614,7 @@ pub(crate) async fn load_flows(
                 is_default: flow.is_default,
                 is_active: flow.is_active,
                 sort_order: flow.sort_order,
+                stage_movement: flow.stage_movement,
                 stages,
             }
         })
@@ -697,13 +702,18 @@ pub async fn create_flow(
         ensure_division_exists(&state.db, auth.organisation_id, division).await?;
     }
 
+    let stage_movement = payload.stage_movement.as_deref().unwrap_or("any");
+    if !matches!(stage_movement, "any" | "sequential") {
+        return Err(AppError::validation("unknown stage movement"));
+    }
+
     let mut tx = state.db.begin().await?;
     let flow_id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO intake_flows
             (id, organisation_id, parent_flow_id, key, name, subject_kind, variant,
-             description, division_id, is_default, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)",
+             description, division_id, is_default, is_active, stage_movement)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11)",
     )
     .bind(flow_id)
     .bind(auth.organisation_id)
@@ -715,6 +725,7 @@ pub async fn create_flow(
     .bind(trim_optional(payload.description.as_deref()))
     .bind(payload.division_id)
     .bind(payload.is_default)
+    .bind(stage_movement)
     .execute(&mut *tx)
     .await
     .map_err(map_conflict)?;
@@ -837,6 +848,20 @@ pub async fn update_flow(
             "UPDATE intake_flows SET description = $1 WHERE organisation_id = $2 AND id = $3",
         )
         .bind(trim_optional(Some(description)))
+        .bind(auth.organisation_id)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    if let Some(stage_movement) = payload.stage_movement.as_deref() {
+        if !matches!(stage_movement, "any" | "sequential") {
+            return Err(AppError::validation("unknown stage movement"));
+        }
+        sqlx::query(
+            "UPDATE intake_flows SET stage_movement = $1
+             WHERE organisation_id = $2 AND id = $3",
+        )
+        .bind(stage_movement)
         .bind(auth.organisation_id)
         .bind(id)
         .execute(&mut *tx)

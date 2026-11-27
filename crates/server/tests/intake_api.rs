@@ -239,7 +239,7 @@ impl Fixture {
 #[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
 async fn create_board_detail_and_onboard_a_case() {
     let fx = Fixture::new().await;
-    let flow = fx.flow("client_standard").await;
+    let flow = fx.flow("client_aged_care").await;
     let flow_id = flow["id"].as_str().unwrap();
     let onboarded = Fixture::stage_id(&flow, "onboarded");
 
@@ -349,7 +349,7 @@ async fn create_board_detail_and_onboard_a_case() {
 #[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
 async fn required_fields_and_checklist_gate_transitions() {
     let fx = Fixture::new().await;
-    let flow = fx.flow("client_standard").await;
+    let flow = fx.flow("client_aged_care").await;
     let flow_id = flow["id"].as_str().unwrap();
     let enquiry = Fixture::stage_id(&flow, "enquiry");
     let eligibility = Fixture::stage_id(&flow, "eligibility");
@@ -476,7 +476,7 @@ async fn required_fields_and_checklist_gate_transitions() {
 #[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
 async fn case_creation_is_idempotent_and_can_be_cancelled() {
     let fx = Fixture::new().await;
-    let flow = fx.flow("client_standard").await;
+    let flow = fx.flow("client_aged_care").await;
     let flow_id = flow["id"].as_str().unwrap();
 
     let payload = json!({
@@ -517,7 +517,7 @@ async fn case_creation_is_idempotent_and_can_be_cancelled() {
 #[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
 async fn contact_lifecycle_endpoint_records_history() {
     let fx = Fixture::new().await;
-    let flow = fx.flow("client_standard").await;
+    let flow = fx.flow("client_aged_care").await;
     let flow_id = flow["id"].as_str().unwrap();
     let onboarded = Fixture::stage_id(&flow, "onboarded");
 
@@ -579,7 +579,7 @@ async fn contact_lifecycle_endpoint_records_history() {
 #[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
 async fn assignment_notifies_another_user() {
     let fx = Fixture::new().await;
-    let flow = fx.flow("client_standard").await;
+    let flow = fx.flow("client_aged_care").await;
     let flow_id = flow["id"].as_str().unwrap();
     let eligibility = Fixture::stage_id(&flow, "eligibility");
 
@@ -692,7 +692,7 @@ async fn assignment_notifies_another_user() {
 #[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
 async fn board_merges_all_intake_paths_and_filters_by_flow_and_type() {
     let fx = Fixture::new().await;
-    let client_flow = fx.flow("client_standard").await;
+    let client_flow = fx.flow("client_aged_care").await;
     let worker_flow = fx.flow("worker_standard").await;
     let client_flow_id = client_flow["id"].as_str().unwrap();
     let worker_flow_id = worker_flow["id"].as_str().unwrap();
@@ -708,7 +708,7 @@ async fn board_merges_all_intake_paths_and_filters_by_flow_and_type() {
 
     let (status, all) = fx.call(Method::GET, "/api/v1/intake/board", None).await;
     assert_eq!(status, StatusCode::OK, "{all}");
-    assert!(all["flows"].as_array().unwrap().len() >= 8);
+    assert!(all["flows"].as_array().unwrap().len() >= 7);
     assert!(all["flow"].is_null());
     let enquiry = all["columns"]
         .as_array()
@@ -734,7 +734,7 @@ async fn board_merges_all_intake_paths_and_filters_by_flow_and_type() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{client_only}");
-    assert_eq!(client_only["flow"]["key"], "client_standard");
+    assert_eq!(client_only["flow"]["key"], "client_aged_care");
     let enquiry = client_only["columns"]
         .as_array()
         .unwrap()
@@ -742,7 +742,7 @@ async fn board_merges_all_intake_paths_and_filters_by_flow_and_type() {
         .find(|column| column["stage"]["kind"] == "enquiry")
         .unwrap();
     assert_eq!(enquiry["count"], 1);
-    assert_eq!(enquiry["cards"][0]["flow"]["key"], "client_standard");
+    assert_eq!(enquiry["cards"][0]["flow"]["key"], "client_aged_care");
 
     let (status, workers) = fx
         .call(
@@ -773,7 +773,7 @@ async fn board_merges_all_intake_paths_and_filters_by_flow_and_type() {
 #[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
 async fn division_filter_includes_child_subdivisions() {
     let fx = Fixture::new().await;
-    let flow = fx.flow("client_standard").await;
+    let flow = fx.flow("client_aged_care").await;
     let flow_id = flow["id"].as_str().unwrap();
 
     let parent = Uuid::now_v7();
@@ -841,6 +841,171 @@ async fn division_filter_includes_child_subdivisions() {
         .map(|column| column["count"].as_i64().unwrap())
         .sum();
     assert_eq!(count, 0);
+
+    fx.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn draft_case_promotes_on_save_and_discards_before_save() {
+    let fx = Fixture::new().await;
+    let flow = fx.flow("client_aged_care").await;
+    let flow_id = flow["id"].as_str().unwrap();
+
+    let (status, created) = fx
+        .call(
+            Method::POST,
+            "/api/v1/intake/cases",
+            Some(json!({ "flow_id": flow_id, "draft": true })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(created["case"]["case"]["is_draft"], true);
+    assert_eq!(created["case"]["case"]["display_name"], "New intake");
+    assert_eq!(created["contact"]["display_name"], "New intake");
+    let case_id = created["case"]["case"]["id"].as_str().unwrap();
+
+    let (status, saved) = fx
+        .call(
+            Method::PATCH,
+            &format!("/api/v1/intake/cases/{case_id}"),
+            Some(json!({
+                "version": 1,
+                "data": {
+                    "first_name": "Jo",
+                    "family_name": "Draft",
+                    "email": "jo.draft@example.com"
+                }
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["case"]["is_draft"], false);
+    assert_eq!(saved["case"]["display_name"], "Jo Draft");
+    assert_eq!(saved["contact"]["display_name"], "Jo Draft");
+
+    let (status, not_draft) = fx
+        .call(
+            Method::DELETE,
+            &format!("/api/v1/intake/cases/{case_id}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{not_draft}");
+
+    let (status, second) = fx
+        .call(
+            Method::POST,
+            "/api/v1/intake/cases",
+            Some(json!({ "flow_id": flow_id, "draft": true })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{second}");
+    let second_case = second["case"]["case"]["id"].as_str().unwrap();
+    let second_contact = second["contact"]["id"].as_str().unwrap();
+
+    let (status, deleted) = fx
+        .call(
+            Method::DELETE,
+            &format!("/api/v1/intake/cases/{second_case}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{deleted}");
+
+    let (status, missing) = fx
+        .call(
+            Method::GET,
+            &format!("/api/v1/intake/cases/{second_case}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{missing}");
+    let (status, missing_contact) = fx
+        .call(
+            Method::GET,
+            &format!("/api/v1/contacts/{second_contact}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{missing_contact}");
+
+    fx.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn sequential_flows_only_move_to_the_previous_or_next_stage() {
+    let fx = Fixture::new().await;
+    let flow = fx.flow("client_aged_care").await;
+    let flow_id = flow["id"].as_str().unwrap();
+    let enquiry = Fixture::stage_id(&flow, "enquiry");
+    let eligibility = Fixture::stage_id(&flow, "eligibility");
+    let service = Fixture::stage_id(&flow, "service_planning");
+    let onboarded = Fixture::stage_id(&flow, "onboarded");
+
+    let (status, updated) = fx
+        .call(
+            Method::PATCH,
+            &format!("/api/v1/intake/flows/{flow_id}"),
+            Some(json!({ "stage_movement": "sequential" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+
+    let (_, created) = fx
+        .create_case(flow_id, "Seq", "Flow", "seq.flow@example.com")
+        .await;
+    let case_id = created["case"]["case"]["id"].as_str().unwrap();
+
+    let (status, jumped) = fx
+        .call(
+            Method::POST,
+            &format!("/api/v1/intake/cases/{case_id}/transition"),
+            Some(json!({ "to_stage_id": onboarded, "version": 1 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{jumped}");
+
+    fx.complete_required_checklist(case_id).await;
+
+    let (status, next) = fx
+        .call(
+            Method::POST,
+            &format!("/api/v1/intake/cases/{case_id}/transition"),
+            Some(json!({ "to_stage_id": eligibility, "version": 1 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{next}");
+    let version = next["case"]["version"].as_i64().unwrap();
+    let allowed: Vec<&str> = next["allowed_transitions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|stage| stage["key"].as_str())
+        .collect();
+    assert_eq!(allowed.len(), 2);
+    assert!(allowed.contains(&"enquiry"));
+    assert!(allowed.contains(&"risk_assessment"));
+
+    let (status, skipped) = fx
+        .call(
+            Method::POST,
+            &format!("/api/v1/intake/cases/{case_id}/transition"),
+            Some(json!({ "to_stage_id": service, "version": version })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{skipped}");
+
+    let (status, back) = fx
+        .call(
+            Method::POST,
+            &format!("/api/v1/intake/cases/{case_id}/transition"),
+            Some(json!({ "to_stage_id": enquiry, "version": version })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{back}");
+    assert_eq!(back["case"]["stage"]["kind"], "enquiry");
 
     fx.cleanup().await;
 }

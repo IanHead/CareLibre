@@ -104,7 +104,9 @@ fn v1_routes() -> Router<AppState> {
         )
         .route(
             "/intake/cases/{id}",
-            get(intake_cases::get_case).patch(intake_cases::update_case),
+            get(intake_cases::get_case)
+                .patch(intake_cases::update_case)
+                .delete(intake_cases::delete_case),
         )
         .route(
             "/intake/cases/{id}/transition",

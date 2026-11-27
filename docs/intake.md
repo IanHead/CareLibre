@@ -175,6 +175,7 @@ Every non-2xx response uses the existing envelope:
   "parent_flow_id": "0193f2d0-8a5e-7c3b-9f1a-2b6c7d8e9f00",
   "description": "Standard disability intake",
   "division_id": null,
+  "stage_movement": "sequential",
   "is_default": true,
   "is_active": true,
   "sort_order": 30,
@@ -342,7 +343,8 @@ linked contact's display name changes.
     "created_at": "2026-11-27T02:00:00Z",
     "onboarded_at": null,
     "closed_at": null,
-    "cancellation_reason": null
+    "cancellation_reason": null,
+    "is_draft": false
   },
   "contact": {
     "id": "…",
@@ -463,6 +465,7 @@ Response `200`:
   "parent_flow_id": "…",
   "description": "Standard disability intake",
   "division_id": null,
+  "stage_movement": "sequential",
   "is_default": false,
   "clone_from_flow_id": "…"
 }
@@ -479,7 +482,7 @@ Response `200`:
 
 ### `PATCH /api/v1/intake/flows/{id}`
 
-Partial update of `name`, `variant`, `parent_flow_id`, `description`, `division_id`,
+Partial update of `name`, `variant`, `parent_flow_id`, `description`, `division_id`, `stage_movement`,
 `is_default`, `is_active`, `sort_order`. `key` and `subject_kind` are immutable.
 Response `200`: `Flow`.
 
@@ -776,6 +779,7 @@ Creates a contact (or links an existing one) and a case in one transaction.
 {
   "client_request_id": "01J9Z8K6T7V0M2Q4R6S8T0W2X4",
   "flow_id": "…",
+  "draft": false,
   "contact_id": null,
   "external_organisation_id": null,
   "contact": {
@@ -961,6 +965,9 @@ Moving to an earlier stage is a correction path: the current-stage field and che
 gates are skipped so a case can always return to an earlier stage. Forward moves still
 enforce both gates.
 
+When a flow has `stage_movement = "sequential"`, only the immediately previous and next
+stages are accepted. With `stage_movement = "any"`, any non-terminal stage is accepted.
+
 If `override=true`, steps 5 and 6 may be skipped by a user with `intake.configure` (or
 `intake.override` if added later), and a reason is required.
 
@@ -1063,6 +1070,13 @@ offboarding flow.
 
 Sets `closed_at` without changing the lifecycle. Used to clear completed cards from the
 Onboarded column. Requires `intake.write`. Returns `CaseDetail`.
+
+### `DELETE /api/v1/intake/cases/{id}`
+
+Discards a draft case created with `"draft": true` before its first field save. Returns
+`204 No Content`. A draft becomes a normal case after the first successful field save, so
+this endpoint then returns `409`. The placeholder contact created for the draft is removed
+with it.
 
 ### `POST /api/v1/intake/cases/{id}/reopen`
 
@@ -1388,11 +1402,10 @@ board filters.
 
 ## 22. Seed configuration
 
-Each new organisation receives eight default flows:
+Each new organisation receives seven default flows:
 
 | Subject kind | Variant | Parent | Notes |
 |---|---|---|---|
-| `client` | `standard` | — | Default client flow |
 | `client` | `aged_care` | — | Aged-care-specific fields |
 | `client` | `disability_standard` | — | Disability standard |
 | `client` | `disability_emergency` | — | Disability emergency |
@@ -1401,10 +1414,10 @@ Each new organisation receives eight default flows:
 | `other_contact` | `standard` | — | Coordinators, family, GPs |
 | `organisation` | `standard` | — | External organisation intake |
 
-Flow keys must be unique; the seed uses keys such as `client_standard`,
-`client_aged_care`, `client_disability_standard`,
-`client_disability_emergency`, `client_fee_for_service`, `worker_standard`,
-`other_contact_standard`, `organisation_standard`.
+Flow keys must be unique; the seed uses keys such as `client_aged_care`,
+`client_disability_standard`, `client_disability_emergency`,
+`client_fee_for_service`, `worker_standard`, `other_contact_standard`,
+`organisation_standard`.
 
 The generic `client_disability` parent flow was removed after discovery: it
 duplicated the standard pipeline, and the two disability variants are clearer as

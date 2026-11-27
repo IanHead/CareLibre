@@ -107,11 +107,12 @@ async fn list_page(
         "<form method=\"post\" action=\"/admin/intake\" class=\"form\">\
          <input type=\"hidden\" name=\"csrf\" value=\"{}\">\
          <div class=\"grid\">\
-         <label>Key<input name=\"key\" required placeholder=\"client_standard_v2\"></label>\
+         <label>Key<input name=\"key\" required placeholder=\"client_aged_care_v2\"></label>\
          <label>Name<input name=\"name\" required placeholder=\"Client — standard\"></label>\
          <label>Subject kind<select name=\"subject_kind\">{}</select></label>\
          <label>Variant<input name=\"variant\" placeholder=\"standard\"></label>\
          <label>Description<textarea name=\"description\" rows=\"2\" placeholder=\"What is this path for?\"></textarea></label>\
+         <label>Stage movement<select name=\"stage_movement\"><option value=\"any\">Any stage</option><option value=\"sequential\">Sequential</option></select></label>\
          <label>Parent flow<select name=\"parent_flow_id\"><option value=\"\">None</option>{}</select></label>\
          <label>Clone stages from<select name=\"clone_from_flow_id\"><option value=\"\">Same subject kind default</option>{}</select></label>\
          </div>\
@@ -134,7 +135,7 @@ async fn list_page(
         body.push_str(&format!(
             "<div class=\"card\"><div class=\"card-head\"><div><strong>{}</strong> \
              <code>{}</code> <span class=\"badge {}\">{}</span> \
-             <span class=\"muted\">{} / {}</span></div>\
+             <span class=\"muted\">{} / {} / {}</span></div>\
              <a class=\"button\" href=\"/admin/intake/flows/{}\">Open</a></div>",
             html::escape(&flow.name),
             html::escape(&flow.key),
@@ -142,6 +143,7 @@ async fn list_page(
             if flow.is_active { "active" } else { "archived" },
             html::escape(&flow.subject_kind),
             html::escape(flow.variant.as_deref().unwrap_or("—")),
+            html::escape(&flow.stage_movement),
             flow.id,
         ));
         if let Some(parent) = flow.parent_flow_id {
@@ -381,6 +383,7 @@ pub async fn flow_page(
          <label>Name<input name=\"name\" required value=\"{}\"></label>\
          <label>Variant<input name=\"variant\" value=\"{}\"></label>\
          <label>Description<textarea name=\"description\" rows=\"2\">{}</textarea></label>\
+         <label>Stage movement<select name=\"stage_movement\">{}</select></label>\
          </div>\
          <label class=\"check\"><input type=\"checkbox\" name=\"is_active\" value=\"1\" {}> Active</label>\
          <label class=\"check\"><input type=\"checkbox\" name=\"is_default\" value=\"1\" {}> Default for this subject kind and variant</label>\
@@ -391,6 +394,7 @@ pub async fn flow_page(
         html::escape(&flow.name),
         html::escape(flow.variant.as_deref().unwrap_or("")),
         html::escape(flow.description.as_deref().unwrap_or("")),
+        stage_movement_options(Some(&flow.stage_movement)),
         if flow.is_active { "checked" } else { "" },
         if flow.is_default { "checked" } else { "" },
     ));
@@ -714,6 +718,10 @@ async fn create_flow_inner(
     let clone_from_flow_id = parse_uuid(form.get("clone_from_flow_id"));
     let variant = optional_text(form, "variant");
     let description = optional_text(form, "description");
+    let stage_movement = optional_text(form, "stage_movement").unwrap_or_else(|| "any".to_owned());
+    if !matches!(stage_movement.as_str(), "any" | "sequential") {
+        return Err("Choose a valid stage movement.".to_owned());
+    }
     let is_default = form.contains_key("is_default");
 
     let mut tx = state.db.begin().await.map_err(|err| err.to_string())?;
@@ -721,8 +729,8 @@ async fn create_flow_inner(
     sqlx::query(
         "INSERT INTO intake_flows
             (id, organisation_id, parent_flow_id, key, name, subject_kind, variant,
-             description, is_default, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)",
+             description, is_default, is_active, stage_movement)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)",
     )
     .bind(id)
     .bind(session.organisation_id)
@@ -733,6 +741,7 @@ async fn create_flow_inner(
     .bind(&variant)
     .bind(&description)
     .bind(is_default)
+    .bind(&stage_movement)
     .execute(&mut *tx)
     .await
     .map_err(friendly_db_error)?;
@@ -808,19 +817,25 @@ pub async fn update_flow(
     };
     let variant = optional_text(&form, "variant");
     let description = optional_text(&form, "description");
+    let stage_movement = optional_text(&form, "stage_movement").unwrap_or_else(|| "any".to_owned());
+    if !matches!(stage_movement.as_str(), "any" | "sequential") {
+        return failure("Choose a valid stage movement.");
+    }
     let is_active = form.contains_key("is_active");
     let is_default = form.contains_key("is_default");
 
     let result = sqlx::query(
         "UPDATE intake_flows
-         SET name = $1, variant = $2, description = $3, is_active = $4, is_default = $5
-         WHERE organisation_id = $6 AND id = $7",
+         SET name = $1, variant = $2, description = $3, is_active = $4,
+             is_default = $5, stage_movement = $6
+         WHERE organisation_id = $7 AND id = $8",
     )
     .bind(&name)
     .bind(&variant)
     .bind(&description)
     .bind(is_active)
     .bind(is_default)
+    .bind(&stage_movement)
     .bind(session.organisation_id)
     .bind(id)
     .execute(&state.db)
@@ -1497,6 +1512,22 @@ fn subject_kind_options() -> String {
                 "<option value=\"{}\">{}</option>",
                 html::escape(kind),
                 html::escape(kind)
+            )
+        })
+        .collect()
+}
+
+fn stage_movement_options(selected: Option<&str>) -> String {
+    [("any", "Any stage"), ("sequential", "Sequential")]
+        .into_iter()
+        .map(|(value, label)| {
+            format!(
+                "<option value=\"{value}\" {}>{label}</option>",
+                if selected == Some(value) {
+                    "selected"
+                } else {
+                    ""
+                }
             )
         })
         .collect()

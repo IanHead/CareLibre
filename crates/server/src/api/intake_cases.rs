@@ -128,6 +128,7 @@ pub struct CaseDetailCaseDto {
     pub onboarded_at: Option<DateTime<Utc>>,
     pub closed_at: Option<DateTime<Utc>>,
     pub cancellation_reason: Option<String>,
+    pub is_draft: bool,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -320,6 +321,9 @@ pub struct CaseCreate {
     #[serde(default)]
     pub allow_duplicate_contact: bool,
     pub duplicate_reason: Option<String>,
+    /// Create a minimal case that can be discarded before its first field save.
+    #[serde(default)]
+    pub draft: bool,
 }
 
 fn empty_object() -> Value {
@@ -481,6 +485,7 @@ struct CaseRow {
     onboarded_at: Option<DateTime<Utc>>,
     closed_at: Option<DateTime<Utc>>,
     cancellation_reason: Option<String>,
+    is_draft: bool,
 }
 
 #[derive(Debug, FromRow)]
@@ -632,7 +637,8 @@ SELECT c.id, c.display_name, c.contact_id, c.flow_id,
        c.referrer_contact_id, c.referrer_organisation_id, c.referral_reference,
        c.referral_received_at, c.created_by,
        cb.full_name AS created_by_name, cb.email AS created_by_email,
-       c.created_at, c.onboarded_at, c.closed_at, c.cancellation_reason
+       c.created_at, c.onboarded_at, c.closed_at, c.cancellation_reason,
+       c.is_draft
 "#;
 
 #[derive(Clone, Copy, Debug)]
@@ -924,6 +930,7 @@ fn detail_case(row: &CaseRow, data: Value) -> CaseDetailCaseDto {
         onboarded_at: row.onboarded_at,
         closed_at: row.closed_at,
         cancellation_reason: row.cancellation_reason.clone(),
+        is_draft: row.is_draft,
     }
 }
 
@@ -1142,6 +1149,20 @@ async fn load_case_detail(
 
     let allowed_transitions = if stage.is_terminal {
         Vec::new()
+    } else if flow.stage_movement == "sequential" {
+        let index = flow
+            .stages
+            .iter()
+            .position(|candidate| candidate.id == stage.id)
+            .unwrap_or(0);
+        let mut transitions = Vec::new();
+        if index > 0 {
+            transitions.push(stage_to_ref(&flow.stages[index - 1]));
+        }
+        if let Some(next) = flow.stages.get(index + 1) {
+            transitions.push(stage_to_ref(next));
+        }
+        transitions
     } else {
         flow.stages
             .iter()
@@ -1243,8 +1264,7 @@ pub async fn board(
         .await?
         .into_iter()
         .filter(|flow| {
-            flow.is_active
-                && (requested.is_empty() || requested.contains(&flow.id))
+            (requested.is_empty() || requested.contains(&flow.id))
                 && subject_kind.is_none_or(|kind| flow.subject_kind == kind)
         })
         .collect::<Vec<_>>();
@@ -1776,70 +1796,84 @@ pub async fn create_case(
         ));
     }
 
-    let (existing_contact, new_contact) = match (payload.contact_id, flow.subject_kind.as_str()) {
-        (Some(contact_id), _) => (
-            Some(load_contact_row(&state.db, auth.organisation_id, contact_id).await?),
-            None,
-        ),
-        (None, "organisation") => (None, None),
-        (None, _) => {
-            let input = payload.contact.as_ref().cloned().ok_or_else(|| {
-                AppError::validation("a contact payload is required for a person intake")
-            })?;
-            if !payload.allow_duplicate_contact {
-                let candidates = find_contact_matches(
-                    &state.db,
-                    auth.organisation_id,
-                    input.email.as_deref().unwrap_or(""),
-                    input.phone.as_deref().unwrap_or(""),
-                    &display_name_from_input(&input),
-                    input.date_of_birth,
-                    10,
-                )
-                .await?;
-                if !candidates.is_empty() {
-                    return Err(AppError::conflict_with_details(
-                        "An existing contact may match this person.",
-                        json!({
-                            "reason": "contact_match",
-                            "candidates": candidates,
-                        }),
+    let draft_contact = payload.draft && flow.subject_kind != "organisation";
+    let (existing_contact, new_contact) = if payload.draft {
+        (None, None)
+    } else {
+        match (payload.contact_id, flow.subject_kind.as_str()) {
+            (Some(contact_id), _) => (
+                Some(load_contact_row(&state.db, auth.organisation_id, contact_id).await?),
+                None,
+            ),
+            (None, "organisation") => (None, None),
+            (None, _) => {
+                let input = payload.contact.as_ref().cloned().ok_or_else(|| {
+                    AppError::validation("a contact payload is required for a person intake")
+                })?;
+                if !payload.allow_duplicate_contact {
+                    let candidates = find_contact_matches(
+                        &state.db,
+                        auth.organisation_id,
+                        input.email.as_deref().unwrap_or(""),
+                        input.phone.as_deref().unwrap_or(""),
+                        &display_name_from_input(&input),
+                        input.date_of_birth,
+                        10,
+                    )
+                    .await?;
+                    if !candidates.is_empty() {
+                        return Err(AppError::conflict_with_details(
+                            "An existing contact may match this person.",
+                            json!({
+                                "reason": "contact_match",
+                                "candidates": candidates,
+                            }),
+                        ));
+                    }
+                } else if payload
+                    .duplicate_reason
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_none()
+                {
+                    return Err(AppError::validation(
+                        "duplicate_reason is required when forcing a duplicate contact",
                     ));
                 }
-            } else if payload
-                .duplicate_reason
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_none()
-            {
-                return Err(AppError::validation(
-                    "duplicate_reason is required when forcing a duplicate contact",
-                ));
+                (None, Some(input))
             }
-            (None, Some(input))
         }
     };
 
     let external_organisation = if flow.subject_kind == "organisation" {
-        let external_id = payload.external_organisation_id.ok_or_else(|| {
-            AppError::validation("external_organisation_id is required for an organisation intake")
-        })?;
-        Some(load_external_organisation(&state.db, auth.organisation_id, external_id).await?)
+        if let Some(external_id) = payload.external_organisation_id {
+            Some(load_external_organisation(&state.db, auth.organisation_id, external_id).await?)
+        } else if payload.draft {
+            None
+        } else {
+            return Err(AppError::validation(
+                "external_organisation_id is required for an organisation intake",
+            ));
+        }
     } else {
         None
     };
 
-    let open_case = find_open_case(
-        &state.db,
-        auth.organisation_id,
-        flow.id,
-        existing_contact.as_ref().map(|contact| contact.id),
-        external_organisation
-            .as_ref()
-            .map(|organisation| organisation.id),
-    )
-    .await?;
+    let open_case = if payload.draft {
+        None
+    } else {
+        find_open_case(
+            &state.db,
+            auth.organisation_id,
+            flow.id,
+            existing_contact.as_ref().map(|contact| contact.id),
+            external_organisation
+                .as_ref()
+                .map(|organisation| organisation.id),
+        )
+        .await?
+    };
     if let Some(open) = open_case {
         return Err(AppError::conflict_with_details(
             "This person already has an open intake for this flow.",
@@ -1853,7 +1887,9 @@ pub async fn create_case(
     }
 
     let mut tx = state.db.begin().await?;
-    let contact = if let Some(input) = new_contact {
+    let contact = if draft_contact {
+        Some(insert_draft_contact(&mut tx, &auth).await?)
+    } else if let Some(input) = new_contact {
         Some(insert_contact(&mut tx, &auth, &input).await?)
     } else {
         existing_contact
@@ -1875,26 +1911,32 @@ pub async fn create_case(
         }
     }
 
-    let display_name = payload
-        .display_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .or_else(|| contact.as_ref().map(|contact| contact.display_name.clone()))
-        .or_else(|| {
-            external_organisation
-                .as_ref()
-                .map(|organisation| organisation.name.clone())
-        })
-        .ok_or_else(|| AppError::validation("a display name is required"))?;
+    let display_name = if payload.draft {
+        "New intake".to_owned()
+    } else {
+        payload
+            .display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .or_else(|| contact.as_ref().map(|contact| contact.display_name.clone()))
+            .or_else(|| {
+                external_organisation
+                    .as_ref()
+                    .map(|organisation| organisation.name.clone())
+            })
+            .ok_or_else(|| AppError::validation("a display name is required"))?
+    };
     if display_name.chars().count() > 200 {
         return Err(AppError::validation(
             "display_name must be 200 characters or fewer",
         ));
     }
 
-    let base = if let Some(contact) = &contact {
+    let base = if payload.draft {
+        Value::Object(Map::new())
+    } else if let Some(contact) = &contact {
         case_service::contact_identity_data(
             contact.given_name.as_deref(),
             contact.family_name.as_deref(),
@@ -1927,9 +1969,9 @@ pub async fn create_case(
              external_organisation_id, subject_kind, display_name, data, source,
              referrer_contact_id, referrer_organisation_id, referral_reference,
              referral_received_at, division_id, priority, created_by,
-             client_request_id, legacy_draft_id)
+             client_request_id, legacy_draft_id, is_draft)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, $15, $16, $17, $18, $19)",
+                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)",
     )
     .bind(case_id)
     .bind(auth.organisation_id)
@@ -1954,6 +1996,7 @@ pub async fn create_case(
     .bind(auth.user_id)
     .bind(trim_optional(payload.client_request_id.as_deref()))
     .bind(trim_optional(payload.legacy_draft_id.as_deref()))
+    .bind(payload.draft)
     .execute(&mut *tx)
     .await?;
 
@@ -2124,6 +2167,16 @@ pub async fn update_case(
         None => None,
     };
 
+    let promoted_display_name = if row.is_draft {
+        new_display_name
+            .clone()
+            .or_else(|| display_name_from_case_data(&merged_map, &row.subject_kind))
+    } else {
+        None
+    };
+    let promote_draft = row.is_draft && promoted_display_name.is_some();
+    let display_name = new_display_name.or(promoted_display_name);
+
     let mut tx = state.db.begin().await?;
     case_service::write_case_data(&mut tx, auth.organisation_id, id, &builtin, &custom).await?;
     sqlx::query(
@@ -2131,16 +2184,24 @@ pub async fn update_case(
             display_name = COALESCE($1, display_name),
             division_id = COALESCE($2, division_id),
             priority = COALESCE($3, priority),
+            is_draft = CASE WHEN $4 THEN false ELSE is_draft END,
             version = version + 1
-         WHERE organisation_id = $4 AND id = $5",
+         WHERE organisation_id = $5 AND id = $6",
     )
-    .bind(new_display_name)
+    .bind(display_name)
     .bind(payload.division_id)
     .bind(payload.priority)
+    .bind(promote_draft)
     .bind(auth.organisation_id)
     .bind(id)
     .execute(&mut *tx)
     .await?;
+    if promote_draft {
+        if let Some(contact_id) = row.contact_id {
+            case_service::copy_case_to_contact(&mut tx, auth.organisation_id, id, contact_id)
+                .await?;
+        }
+    }
 
     if payload.assignee_user_id.is_some() || payload.unassign {
         let event_id = insert_event(
@@ -2219,6 +2280,58 @@ pub async fn update_case(
 }
 
 #[utoipa::path(
+    delete,
+    path = "/api/v1/intake/cases/{id}",
+    tag = "intake",
+    security(("bearer_auth" = [])),
+    params(("id" = Uuid, Path, description = "Intake case id")),
+    responses(
+        (status = 204, description = "Draft case discarded"),
+        (status = 401, description = "Missing or invalid access token", body = ErrorBody),
+        (status = 403, description = "Missing capability", body = ErrorBody),
+        (status = 404, description = "Case not found", body = ErrorBody),
+        (status = 409, description = "Only draft cases can be discarded", body = ErrorBody)
+    )
+)]
+pub async fn delete_case(
+    State(state): State<AppState>,
+    auth: AuthContext,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    auth.require(Capability::IntakeWrite)?;
+    let row = load_case_row(&state.db, auth.organisation_id, id).await?;
+    if !row.is_draft {
+        return Err(AppError::conflict(
+            "only an unsaved intake draft can be discarded",
+        ));
+    }
+    let mut tx = state.db.begin().await?;
+    write_audit(
+        &mut tx,
+        auth.organisation_id,
+        auth.user_id,
+        "intake.case.discarded",
+        id,
+        json!({ "contact_id": row.contact_id }),
+    )
+    .await?;
+    sqlx::query("DELETE FROM intake_cases WHERE organisation_id = $1 AND id = $2 AND is_draft")
+        .bind(auth.organisation_id)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    if let Some(contact_id) = row.contact_id {
+        sqlx::query("DELETE FROM contacts WHERE organisation_id = $1 AND id = $2")
+            .bind(auth.organisation_id)
+            .bind(contact_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
     post,
     path = "/api/v1/intake/cases/{id}/transition",
     tag = "intake",
@@ -2273,6 +2386,24 @@ pub async fn transition_case(
     // Backtracking is how a coordinator corrects a case or returns to an earlier
     // stage. It must not be trapped behind the same gates used to move forward.
     let moving_back = target.sort_order < current.sort_order;
+    if flow.stage_movement == "sequential" {
+        let current_index = flow
+            .stages
+            .iter()
+            .position(|stage| stage.id == current.id)
+            .unwrap_or(0);
+        let target_index = flow
+            .stages
+            .iter()
+            .position(|stage| stage.id == target.id)
+            .unwrap_or(current_index);
+        let adjacent = target_index.abs_diff(current_index) == 1;
+        if !adjacent {
+            return Err(invalid_transition(
+                "this intake flow only moves to the previous or next stage",
+            ));
+        }
+    }
 
     if target.kind == "cancelled"
         && payload
@@ -3105,6 +3236,47 @@ async fn load_contact_summary(
     })
 }
 
+async fn insert_draft_contact(
+    tx: &mut Transaction<'_, Postgres>,
+    auth: &AuthContext,
+) -> Result<ContactRow, AppError> {
+    auth.require(Capability::ContactsWrite)?;
+    let id = Uuid::now_v7();
+    let display_name = "New intake".to_owned();
+    sqlx::query(
+        "INSERT INTO contacts
+            (id, organisation_id, display_name, details, lifecycle_status)
+         VALUES ($1, $2, $3, '{}'::jsonb, 'enquiry')",
+    )
+    .bind(id)
+    .bind(auth.organisation_id)
+    .bind(&display_name)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO contact_status_history
+            (id, organisation_id, contact_id, from_status, to_status, reason, actor_user_id)
+         VALUES ($1, $2, $3, NULL, 'enquiry', 'Intake draft created', $4)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(auth.organisation_id)
+    .bind(id)
+    .bind(auth.user_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(ContactRow {
+        id,
+        display_name,
+        given_name: None,
+        family_name: None,
+        email: None,
+        phone: None,
+        date_of_birth: None,
+        lifecycle_status: "enquiry".to_owned(),
+        role: "other".to_owned(),
+    })
+}
+
 async fn insert_contact(
     tx: &mut Transaction<'_, Postgres>,
     auth: &AuthContext,
@@ -3217,6 +3389,27 @@ fn display_name_from_input(input: &ContactCreate) -> String {
             .filter(|value| !value.is_empty())
             .unwrap_or("")
             .to_owned(),
+    }
+}
+
+fn display_name_from_case_data(data: &Map<String, Value>, subject_kind: &str) -> Option<String> {
+    let text = |key: &str| {
+        data.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    if subject_kind == "organisation" {
+        return text("organisation_name").map(str::to_owned);
+    }
+    match (
+        text("first_name").or_else(|| text("given_name")),
+        text("family_name").or_else(|| text("last_name")),
+    ) {
+        (Some(given), Some(family)) => Some(format!("{given} {family}")),
+        (Some(given), None) => Some(given.to_owned()),
+        (None, Some(family)) => Some(family.to_owned()),
+        (None, None) => None,
     }
 }
 

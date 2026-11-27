@@ -52,7 +52,7 @@ async fn seeds_default_flows_stages_and_policies() {
             .fetch_one(&mut *tx)
             .await
             .unwrap();
-    assert_eq!(flows, 8);
+    assert_eq!(flows, 7);
 
     let stages_per_flow: Vec<i64> = sqlx::query_scalar(
         "SELECT count(*) FROM intake_stages
@@ -62,7 +62,7 @@ async fn seeds_default_flows_stages_and_policies() {
     .fetch_all(&mut *tx)
     .await
     .unwrap();
-    assert_eq!(stages_per_flow.len(), 8);
+    assert_eq!(stages_per_flow.len(), 7);
     assert!(stages_per_flow.iter().all(|count| *count == 6));
 
     let actions: i64 =
@@ -71,7 +71,7 @@ async fn seeds_default_flows_stages_and_policies() {
             .fetch_one(&mut *tx)
             .await
             .unwrap();
-    assert_eq!(actions, 8 * 6 * 7);
+    assert_eq!(actions, 7 * 6 * 7);
 
     let enquiry_first: bool = sqlx::query_scalar(
         "SELECT bool_and(first_kind = 'enquiry') FROM (
@@ -164,7 +164,7 @@ async fn a_contact_can_have_only_one_open_case_per_flow() {
         "SELECT f.id, s.id
          FROM intake_flows f
          JOIN intake_stages s ON s.flow_id = f.id AND s.organisation_id = f.organisation_id
-         WHERE f.organisation_id = $1 AND f.key = 'client_standard'
+         WHERE f.organisation_id = $1 AND f.key = 'client_aged_care'
          ORDER BY s.sort_order, s.id
          LIMIT 1",
     )
