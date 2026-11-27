@@ -180,6 +180,37 @@ management and house managers by default); others see that a note exists.
 Ended relationships stay in `GET /relationships` with `status = "ended"` but
 are left out of the network graph and of `contact_care_roles`.
 
+## Intake
+
+Intake is a configurable pipeline of cases. Kanban columns are **stages**, not
+contact statuses.
+
+- `contacts.lifecycle_status` is the operational lifecycle (`enquiry`,
+  `onboarding`, `suspended`, `active`, `offboarding`, `intake_cancelled`,
+  `offboarded`) and is independent of intake. `contact_status_history` is
+  append-only.
+- `intake_flows` define a pipeline for a subject kind and variant. A flow may
+  point at a parent flow for grouping. `intake_stages` are the ordered columns;
+  each has a fixed `stage_kind` (`enquiry`, `eligibility`, `risk_assessment`,
+  `service_planning`, `custom`, `onboarded`, `cancelled`).
+- `intake_stage_actions` holds the per-stage action policy, `intake_stage_assignees`
+  holds named-user and permission-set assignment rules, and
+  `intake_stage_checklist_items` holds the checklist template.
+- `intake_cases` is one attempt at intake. A contact may have several cases over
+  time; at most one open case is allowed per contact and flow. Onboarded cases
+  remain visible in the Onboarded column until archived and do not block a new
+  attempt.
+- `intake_case_checklist_items` snapshots the template when a case enters a
+  stage. `intake_case_events` is the case timeline and `intake_waitlist_entries`
+  tracks waitlists without removing the case from the pipeline.
+- `notifications` stores in-app alerts for assignees and watchers. Email/SMS can
+  later consume the same rows.
+- Custom fields for cases use `custom_field_values` with
+  `entity_type = 'intake_case'`.
+
+Default flows and stages are seeded per tenant by
+`carelibre_seed_intake_flows(uuid)`. See `docs/intake.md` for the API contract.
+
 ## Organisations and branding
 
 - `organisations` holds every organisation. The tenant root is `tenant_id = id`

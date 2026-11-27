@@ -5,6 +5,7 @@ pub mod contacts;
 pub mod external_organisations;
 pub mod funding;
 pub mod health;
+pub mod intake;
 pub mod openapi;
 pub mod organisation;
 pub mod relationship_types;
@@ -76,6 +77,37 @@ fn v1_routes() -> Router<AppState> {
         )
         .route("/contacts", get(contacts::list).post(contacts::create))
         .route("/contacts/{id}", get(contacts::get).patch(contacts::update))
+        .route("/intake/field-catalog", get(intake::field_catalog))
+        .route(
+            "/intake/flows",
+            get(intake::list_flows).post(intake::create_flow),
+        )
+        .route(
+            "/intake/flows/{id}",
+            axum::routing::patch(intake::update_flow).delete(intake::archive_flow),
+        )
+        .route("/intake/flows/{id}/stages", post(intake::create_stage))
+        .route(
+            "/intake/flows/{id}/stages/reorder",
+            post(intake::reorder_stages),
+        )
+        .route(
+            "/intake/stages/{id}",
+            axum::routing::patch(intake::update_stage).delete(intake::delete_stage),
+        )
+        .route(
+            "/intake/stages/{id}/actions",
+            axum::routing::put(intake::replace_actions),
+        )
+        .route(
+            "/intake/stages/{id}/checklist",
+            axum::routing::put(intake::replace_checklist),
+        )
+        .route(
+            "/intake/stages/{id}/assignees",
+            axum::routing::put(intake::replace_assignees),
+        )
+        .route("/intake/assignees", get(intake::list_assignees))
         .route(
             "/contacts/{id}/qualities",
             get(worker_qualities::list_values).post(worker_qualities::set_value),

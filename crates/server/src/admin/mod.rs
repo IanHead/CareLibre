@@ -13,6 +13,7 @@ pub mod erd;
 pub mod funding_sources;
 pub mod html;
 pub mod import_ui;
+pub mod intake;
 pub mod invitations;
 pub mod network;
 pub mod onboarding;
@@ -67,6 +68,30 @@ pub fn router() -> Router<AppState> {
             "/funding-sources/{id}/active",
             post(funding_sources::set_active),
         )
+        .route("/intake", get(intake::list).post(intake::create_flow))
+        .route("/intake/flows/{id}", get(intake::flow_page))
+        .route("/intake/flows/{id}/update", post(intake::update_flow))
+        .route("/intake/flows/{id}/archive", post(intake::archive_flow))
+        .route("/intake/flows/{id}/stages", post(intake::add_stage))
+        .route("/intake/stages/{id}", get(intake::stage_page))
+        .route("/intake/stages/{id}/update", post(intake::update_stage))
+        .route(
+            "/intake/stages/{id}/fields",
+            post(intake::update_stage_fields),
+        )
+        .route(
+            "/intake/stages/{id}/actions",
+            post(intake::update_stage_actions),
+        )
+        .route(
+            "/intake/stages/{id}/checklist",
+            post(intake::update_stage_checklist),
+        )
+        .route(
+            "/intake/stages/{id}/assignees",
+            post(intake::update_stage_assignees),
+        )
+        .route("/intake/stages/{id}/delete", post(intake::delete_stage))
         .route("/demo-data", get(demo_data::page).post(demo_data::seed))
         .route("/relationships", get(network::page))
         .route(

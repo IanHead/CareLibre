@@ -43,10 +43,14 @@ pub enum Capability {
     RelationshipsIncidentNotes = 32,
     RelationshipTypesManage = 33,
     WorkerQualitiesManage = 34,
+    IntakeRead = 35,
+    IntakeWrite = 36,
+    IntakeAssign = 37,
+    IntakeConfigure = 38,
 }
 
 impl Capability {
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 39] = [
         Self::ContactsRead,
         Self::ContactsWrite,
         Self::RelationshipsRead,
@@ -82,6 +86,10 @@ impl Capability {
         Self::RelationshipsIncidentNotes,
         Self::RelationshipTypesManage,
         Self::WorkerQualitiesManage,
+        Self::IntakeRead,
+        Self::IntakeWrite,
+        Self::IntakeAssign,
+        Self::IntakeConfigure,
     ];
 
     #[must_use]
@@ -122,6 +130,10 @@ impl Capability {
             Self::RelationshipsIncidentNotes => "relationships.incident_notes",
             Self::RelationshipTypesManage => "relationship_types.manage",
             Self::WorkerQualitiesManage => "worker_qualities.manage",
+            Self::IntakeRead => "intake.read",
+            Self::IntakeWrite => "intake.write",
+            Self::IntakeAssign => "intake.assign",
+            Self::IntakeConfigure => "intake.configure",
         }
     }
 
@@ -163,6 +175,10 @@ impl Capability {
             Self::RelationshipsIncidentNotes => "View incident notes",
             Self::RelationshipTypesManage => "Manage relationship types",
             Self::WorkerQualitiesManage => "Manage worker qualities",
+            Self::IntakeRead => "View intake",
+            Self::IntakeWrite => "Edit intake",
+            Self::IntakeAssign => "Assign intake",
+            Self::IntakeConfigure => "Configure intake",
         }
     }
 
@@ -189,6 +205,9 @@ impl Capability {
             | Self::RatesWrite
             | Self::CustomFieldsManage => "Catalogue",
             Self::RostersRead | Self::RostersWrite | Self::RostersApprove => "Rostering",
+            Self::IntakeRead | Self::IntakeWrite | Self::IntakeAssign | Self::IntakeConfigure => {
+                "Intake"
+            }
             Self::FinanceRead | Self::FinanceWrite => "Finance",
             Self::HrRead | Self::HrWrite => "Human resources",
             Self::UsersManage
