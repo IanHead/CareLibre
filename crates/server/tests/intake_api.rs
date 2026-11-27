@@ -197,6 +197,30 @@ impl Fixture {
         .await
     }
 
+    async fn complete_required_checklist(&self, case_id: &str) {
+        let (status, detail) = self
+            .call(
+                Method::GET,
+                &format!("/api/v1/intake/cases/{case_id}"),
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{detail}");
+        for item in detail["checklist"].as_array().unwrap() {
+            if item["is_required"] == true && item["completed_at"].is_null() {
+                let item_id = item["id"].as_str().unwrap();
+                let (status, toggled) = self
+                    .call(
+                        Method::POST,
+                        &format!("/api/v1/intake/cases/{case_id}/checklist/{item_id}"),
+                        Some(json!({ "completed": true })),
+                    )
+                    .await;
+                assert_eq!(status, StatusCode::OK, "{toggled}");
+            }
+        }
+    }
+
     async fn cleanup(self) {
         sqlx::query("DELETE FROM organisations WHERE id = $1")
             .bind(self.organisation)
@@ -286,6 +310,8 @@ async fn create_board_detail_and_onboard_a_case() {
     assert_eq!(status, StatusCode::CONFLICT, "{open}");
     assert_eq!(open["error"]["details"]["reason"], "open_case_exists");
 
+    fx.complete_required_checklist(case_id).await;
+
     let (status, transitioned) = fx
         .call(
             Method::POST,
@@ -325,6 +351,7 @@ async fn required_fields_and_checklist_gate_transitions() {
     let fx = Fixture::new().await;
     let flow = fx.flow("client_standard").await;
     let flow_id = flow["id"].as_str().unwrap();
+    let enquiry = Fixture::stage_id(&flow, "enquiry");
     let eligibility = Fixture::stage_id(&flow, "eligibility");
     let risk = Fixture::stage_id(&flow, "risk_assessment");
 
@@ -332,6 +359,36 @@ async fn required_fields_and_checklist_gate_transitions() {
         .create_case(flow_id, "Sam", "Lee", "sam@example.com")
         .await;
     let case_id = created["case"]["case"]["id"].as_str().unwrap();
+
+    // Enquiry checklist items gate the first forward move.
+    let (status, blocked_first_move) = fx
+        .call(
+            Method::POST,
+            &format!("/api/v1/intake/cases/{case_id}/transition"),
+            Some(json!({ "to_stage_id": eligibility, "version": 1 })),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{blocked_first_move}"
+    );
+    assert_eq!(
+        blocked_first_move["error"]["details"]["reason"],
+        "intake_transition_blocked"
+    );
+    assert!(blocked_first_move["error"]["details"]["missing_fields"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(
+        !blocked_first_move["error"]["details"]["incomplete_checklist"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    fx.complete_required_checklist(case_id).await;
 
     let (status, at_eligibility) = fx
         .call(
@@ -342,6 +399,28 @@ async fn required_fields_and_checklist_gate_transitions() {
         .await;
     assert_eq!(status, StatusCode::OK, "{at_eligibility}");
     let version = at_eligibility["case"]["version"].as_i64().unwrap();
+
+    // Moving back to enquiry is a correction path and skips eligibility gates.
+    let (status, backwards) = fx
+        .call(
+            Method::POST,
+            &format!("/api/v1/intake/cases/{case_id}/transition"),
+            Some(json!({ "to_stage_id": enquiry, "version": version })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{backwards}");
+    assert_eq!(backwards["case"]["stage"]["kind"], "enquiry");
+    let version = backwards["case"]["version"].as_i64().unwrap();
+
+    let (status, at_eligibility_again) = fx
+        .call(
+            Method::POST,
+            &format!("/api/v1/intake/cases/{case_id}/transition"),
+            Some(json!({ "to_stage_id": eligibility, "version": version })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{at_eligibility_again}");
+    let version = at_eligibility_again["case"]["version"].as_i64().unwrap();
 
     let (status, blocked) = fx
         .call(
@@ -378,27 +457,7 @@ async fn required_fields_and_checklist_gate_transitions() {
     assert_eq!(status, StatusCode::OK, "{patched}");
     let version = patched["case"]["version"].as_i64().unwrap();
 
-    let (status, detail) = fx
-        .call(
-            Method::GET,
-            &format!("/api/v1/intake/cases/{case_id}"),
-            None,
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK);
-    for item in detail["checklist"].as_array().unwrap() {
-        if item["is_required"] == true {
-            let item_id = item["id"].as_str().unwrap();
-            let (status, toggled) = fx
-                .call(
-                    Method::POST,
-                    &format!("/api/v1/intake/cases/{case_id}/checklist/{item_id}"),
-                    Some(json!({ "completed": true })),
-                )
-                .await;
-            assert_eq!(status, StatusCode::OK, "{toggled}");
-        }
-    }
+    fx.complete_required_checklist(case_id).await;
 
     let (status, moved) = fx
         .call(
@@ -467,6 +526,8 @@ async fn contact_lifecycle_endpoint_records_history() {
         .await;
     let case_id = created["case"]["case"]["id"].as_str().unwrap().to_owned();
     let contact_id = created["contact"]["id"].as_str().unwrap().to_owned();
+
+    fx.complete_required_checklist(&case_id).await;
 
     let (status, _) = fx
         .call(
@@ -570,6 +631,8 @@ async fn assignment_notifies_another_user() {
         .create_case(flow_id, "Jo", "Kim", "jo.kim@example.com")
         .await;
     let case_id = created["case"]["case"]["id"].as_str().unwrap();
+
+    fx.complete_required_checklist(case_id).await;
 
     let (status, transitioned) = fx
         .call(

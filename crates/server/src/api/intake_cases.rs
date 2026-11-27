@@ -2270,6 +2270,9 @@ pub async fn transition_case(
         .find(|stage| stage.id == row.stage_id)
         .cloned()
         .ok_or_else(|| AppError::not_found("intake stage not found"))?;
+    // Backtracking is how a coordinator corrects a case or returns to an earlier
+    // stage. It must not be trapped behind the same gates used to move forward.
+    let moving_back = target.sort_order < current.sort_order;
 
     if target.kind == "cancelled"
         && payload
@@ -2286,19 +2289,23 @@ pub async fn transition_case(
         case_service::merge_case_data(&state.db, auth.organisation_id, id, row.data.0.clone())
             .await?;
     let values = case_service::values_by_key(&merged);
-    let missing_fields: Vec<String> = current
-        .required_fields
-        .iter()
-        .filter(|key| {
-            values
-                .get(*key)
-                .is_none_or(|value| !case_service::value_present(value))
-        })
-        .cloned()
-        .collect();
+    let missing_fields: Vec<String> = if moving_back {
+        Vec::new()
+    } else {
+        current
+            .required_fields
+            .iter()
+            .filter(|key| {
+                values
+                    .get(*key)
+                    .is_none_or(|value| !case_service::value_present(value))
+            })
+            .cloned()
+            .collect()
+    };
 
     let mut incomplete_checklist = Vec::new();
-    if current.checklist_gate {
+    if !moving_back && current.checklist_gate {
         let mut tx = state.db.begin().await?;
         incomplete_checklist = case_service::incomplete_required_checklist(
             &mut tx,

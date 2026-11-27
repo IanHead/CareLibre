@@ -957,6 +957,10 @@ Validation order:
 7. if `onboarded`, the contact is valid for role linking;
 8. if `cancelled`, a reason is required.
 
+Moving to an earlier stage is a correction path: the current-stage field and checklist
+gates are skipped so a case can always return to an earlier stage. Forward moves still
+enforce both gates.
+
 If `override=true`, steps 5 and 6 may be skipped by a user with `intake.configure` (or
 `intake.override` if added later), and a reason is required.
 
