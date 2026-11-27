@@ -37,6 +37,16 @@ CI runs only for releases. Run these checks locally before opening a pull reques
 - **Secrets** never enter the repository. `.env` is ignored; CI uses throwaway
   values.
 
+## Releases
+
+Before tagging a release, add `docs/release-notes/vX.Y.Z.md` using
+`docs/release-notes/TEMPLATE.md`. The release workflow refuses to publish without
+the `New`, `Changed` and `Fixed` sections.
+
+Write each bullet for a care provider, not a developer: describe what they can
+now do, what works differently, or what no longer goes wrong. Avoid commit
+hashes, file names, function names, API details and implementation jargon.
+
 ## Commit messages
 
 Imperative mood, one logical change per commit:

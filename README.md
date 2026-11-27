@@ -221,6 +221,12 @@ CI runs only for releases. Before opening a pull request, run fmt, clippy, tests
 and migration validation locally; the release workflow gates the build on the
 same checks (including a Docker image build) against a live PostgreSQL service.
 
+Before tagging a release, add `docs/release-notes/vX.Y.Z.md` from
+[`docs/release-notes/TEMPLATE.md`](docs/release-notes/TEMPLATE.md). Release notes
+are published with the GitHub release and must contain **New**, **Changed** and
+**Fixed** sections, written for care providers rather than developers. The release
+workflow will not publish without them.
+
 ## License
 
 AGPL-3.0-or-later. See [`LICENSE`](LICENSE).
