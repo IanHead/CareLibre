@@ -52,7 +52,7 @@ async fn seeds_default_flows_stages_and_policies() {
             .fetch_one(&mut *tx)
             .await
             .unwrap();
-    assert_eq!(flows, 9);
+    assert_eq!(flows, 8);
 
     let stages_per_flow: Vec<i64> = sqlx::query_scalar(
         "SELECT count(*) FROM intake_stages
@@ -62,7 +62,7 @@ async fn seeds_default_flows_stages_and_policies() {
     .fetch_all(&mut *tx)
     .await
     .unwrap();
-    assert_eq!(stages_per_flow.len(), 9);
+    assert_eq!(stages_per_flow.len(), 8);
     assert!(stages_per_flow.iter().all(|count| *count == 6));
 
     let actions: i64 =
@@ -71,7 +71,7 @@ async fn seeds_default_flows_stages_and_policies() {
             .fetch_one(&mut *tx)
             .await
             .unwrap();
-    assert_eq!(actions, 9 * 6 * 7);
+    assert_eq!(actions, 8 * 6 * 7);
 
     let enquiry_first: bool = sqlx::query_scalar(
         "SELECT bool_and(first_kind = 'enquiry') FROM (

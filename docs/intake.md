@@ -1379,25 +1379,27 @@ board filters.
 
 ## 22. Seed configuration
 
-Each new organisation receives nine default flows: the disability parent plus its two
-sub-flows, and the standard flows for each subject kind.
+Each new organisation receives eight default flows:
 
 | Subject kind | Variant | Parent | Notes |
 |---|---|---|---|
 | `client` | `standard` | — | Default client flow |
 | `client` | `aged_care` | — | Aged-care-specific fields |
-| `client` | `disability` | — | Parent for disability sub-flows |
-| `client` | `standard` | disability | Disability standard |
-| `client` | `emergency` | disability | Disability emergency |
+| `client` | `disability_standard` | — | Disability standard |
+| `client` | `disability_emergency` | — | Disability emergency |
 | `client` | `fee_for_service` | — | Private/fee-for-service |
 | `worker` | `standard` | — | Worker onboarding |
 | `other_contact` | `standard` | — | Coordinators, family, GPs |
 | `organisation` | `standard` | — | External organisation intake |
 
 Flow keys must be unique; the seed uses keys such as `client_standard`,
-`client_aged_care`, `client_disability`, `client_disability_standard`,
+`client_aged_care`, `client_disability_standard`,
 `client_disability_emergency`, `client_fee_for_service`, `worker_standard`,
 `other_contact_standard`, `organisation_standard`.
+
+The generic `client_disability` parent flow was removed after discovery: it
+duplicated the standard pipeline, and the two disability variants are clearer as
+top-level flows. Parent flows remain supported for organisations that need them.
 
 Every flow starts with six stages:
 
