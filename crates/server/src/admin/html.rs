@@ -94,6 +94,9 @@ pub fn layout(title: &str, active: &str, who: Option<&Who<'_>>, body: &str) -> S
         if capabilities.contains(crate::permissions::Capability::CustomFieldsManage) {
             data.push_str(&nav_item("/admin/custom-fields", "Custom fields", active));
         }
+        if capabilities.contains(crate::permissions::Capability::IntakeConfigure) {
+            data.push_str(&nav_item("/admin/intake", "Intake", active));
+        }
         if !data.is_empty() {
             out.push_str("<div class=\"nav-group\"><h2>Data</h2>");
             out.push_str(&data);

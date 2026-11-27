@@ -17,7 +17,11 @@ Phase 1 is shipped:
 - Administrator is immutable and the last owner cannot be demoted (DB triggers);
 - capabilities resolved per request for the admin UI;
 - `/admin/permission-sets` and per-user access assignment;
-- navigation and pages gated by capability, with `403` on direct access.
+- navigation and pages gated by capability, with `403` on direct access;
+- intake capabilities, flow/stage policy schema, default flow seeding,
+  `/admin/intake` configuration, case creation/matching, board API,
+  transitions, onboarding, contact lifecycle and in-app notifications
+  (interactive desktop board is the next slice).
 
 Still outstanding:
 
@@ -60,6 +64,15 @@ capabilities here.
 | `relationships.write` | Create/edit relationships |
 | `organisations.read` | View organisations in the tenant |
 | `organisations.write` | Create/edit organisations |
+
+### Intake
+
+| Capability | Meaning |
+|---|---|
+| `intake.read` | View intake flows, cases, waitlists and timelines |
+| `intake.write` | Create, edit, transition and archive intake cases |
+| `intake.assign` | Reassign intake cases and stage queues |
+| `intake.configure` | Manage flows, stages, fields, actions, checklists and assignment rules |
 
 ### Care catalogue
 
@@ -117,6 +130,10 @@ capabilities here.
 | `relationships.write` | — | ✓ | — | — | — | — | ✓ |
 | `organisations.read` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `organisations.write` | — | ✓ | — | — | — | — | ✓ |
+| `intake.read` | — | ✓ | — | ✓ | ✓ | — | ✓ |
+| `intake.write` | — | ✓ | — | — | — | — | ✓ |
+| `intake.assign` | — | ✓ | — | — | — | — | ✓ |
+| `intake.configure` | — | — | — | — | — | — | ✓ |
 | `divisions.read` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `divisions.write` | — | — | — | — | — | — | ✓ |
 | `cost_centres.read` | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ |

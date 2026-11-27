@@ -50,6 +50,8 @@ pub struct ContactDto {
     pub phone: Option<String>,
     pub notes: Option<String>,
     pub is_active: bool,
+    /// Operational lifecycle, independent of intake stages.
+    pub lifecycle_status: String,
     pub details: Value,
     pub role: String,
     pub updated_at: DateTime<Utc>,
@@ -173,6 +175,7 @@ struct ContactRow {
     phone: Option<String>,
     notes: Option<String>,
     is_active: bool,
+    lifecycle_status: String,
     details: SqlJson<Value>,
     updated_at: DateTime<Utc>,
     is_client: bool,
@@ -418,7 +421,7 @@ pub async fn list_custom_fields(
 /// Contacts joined with their relationship-derived client/worker flags.
 const CONTACT_SELECT: &str = "SELECT id, display_name, given_name, family_name, preferred_name,
     pronouns, date_of_birth, gender, languages, cultural_identity, email, phone, notes,
-    is_active, details, updated_at,
+    is_active, lifecycle_status, details, updated_at,
     roles.is_client, roles.is_worker
     FROM contacts
     JOIN contact_care_roles roles ON roles.contact_id = contacts.id";
@@ -670,6 +673,7 @@ fn contact_dto(row: ContactRow) -> ContactDto {
         phone: row.phone,
         notes: row.notes,
         is_active: row.is_active,
+        lifecycle_status: row.lifecycle_status,
         details,
         role,
         updated_at: row.updated_at,

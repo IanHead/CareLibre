@@ -16,6 +16,7 @@ Short, dated records of decisions that are expensive to reverse.
 | [0010](0010-csv-import.md) | CSV import with published templates and specs | Accepted |
 | [0011](0011-rostering-suitability-graph.md) | Rostering suitability as declared constraints plus derived history | Accepted |
 | [0012](0012-organisation-branding.md) | Organisation branding stored in PostgreSQL | Accepted |
+| [0013](0013-intake-cases.md) | Intake as a configurable case pipeline with independent contact lifecycle | Proposed |
 
 ## Adding an ADR
 

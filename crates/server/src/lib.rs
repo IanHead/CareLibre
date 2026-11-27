@@ -13,6 +13,7 @@ pub mod demo;
 pub mod error;
 pub mod funding;
 pub mod import;
+pub mod intake;
 pub mod onboarding;
 pub mod organisation;
 pub mod permissions;
