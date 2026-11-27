@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-27
 - **Supersedes:** none
-- **Related:** [Intake API and behaviour contract](../intake.md), [Permissions](../permissions.md), [desktop implementation plan](https://github.com/IanHead/CareLibre-Desktop/blob/main/docs/intake-implementation-plan.md)
+- **Related:** [Intake API and behaviour contract](../intake.md), [Permissions](../permissions.md)
 
 ## Context
 

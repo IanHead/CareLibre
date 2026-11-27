@@ -2,7 +2,7 @@
 
 - **Status:** draft for implementation
 - **Version:** v1 (under `/api/v1`)
-- **Related:** [ADR 0013](adr/0013-intake-cases.md), [Permissions](permissions.md), [desktop implementation plan](https://github.com/IanHead/CareLibre-Desktop/blob/main/docs/intake-implementation-plan.md)
+- **Related:** [ADR 0013](adr/0013-intake-cases.md), [Permissions](permissions.md)
 
 This document is the wire contract for the intake board, cases, configuration, assignments,
 checklists and lifecycle. It is written for both server and client implementers. The ADR
