@@ -69,6 +69,7 @@ Organisation slug: `blue-dreams-care`.
 | External organisations | 42 (GPs, a specialist practice, the Office of the Public Advocate, pharmacies, support coordinators, plan managers, allied health, transport, equipment, local businesses, advocacy) |
 | External contacts | 2 representatives per organisation, plus 2–4 named GPs per practice and 6 specialists |
 | Relationships | ~3,600 two-sided links (see below) |
+| Intake | 26 sample cases across the client, worker, other-contact and organisation flows; referrals, priorities, checklists, timelines and 3 waitlist entries |
 | Custom fields | `ndis_number`, `plan_end_date` (NDIS clients), `risk_level` (all clients); `employee_number` for staff |
 | Custom values | ~1,700 |
 | Rostering | 14 days, 420 shifts (~210 completed with outcomes, ~210 published ahead), 84 sessions, 420 client + 462 worker assignments |
@@ -104,6 +105,27 @@ The dataset models the households a disability and aged-care provider sees:
 | Funding-specific | NDIS: support coordinator (organisation and named coordinator), plan manager, speech pathology, OT. Aged care: pharmacy, physiotherapy |
 | Workers | A few worker couples, siblings, parent/child and cousins |
 | Conflicts of interest | 5 workers related to a client, noted on the relationship and blocked by a roster constraint |
+
+## Intake
+
+The seed creates prospects through the same enquiry path the API uses: a new
+contact starts at `enquiry`, and the case carries the identity fields, funding,
+consent, risk and service-planning answers appropriate to its stage. Cases are
+spread across every active flow so the board shows work in Enquiry, Eligibility,
+Risk assessment, Service planning and Onboarded.
+
+The set includes:
+
+- referrals from GP practices, support coordinators and advocacy services;
+- internal and enquiry-sourced cases, with a high-priority safeguarding case;
+- waitlist entries for respite, supported independent living and domestic
+  assistance, including one offered place;
+- completed checklists for earlier stages and partly completed checklists for
+  the current stage;
+- a timeline of created, assigned, transitioned, waitlisted and onboarded events;
+- one cancelled case with a reason, kept out of the default board;
+- onboarded client and worker prospects with the matching care or employment
+  relationship.
 
 ## Roster suitability data
 

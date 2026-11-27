@@ -271,6 +271,8 @@ fn success_body(report: &demo::SeedReport) -> String {
         ("Contacts", report.contacts),
         ("Relationships", report.relationships),
         ("Shifts", report.shifts),
+        ("Intake cases", report.intake_cases as i64),
+        ("Waitlisted", report.intake_waitlist as i64),
         ("Funding agreements", report.funding_agreements as i64),
     ] {
         body.push_str(&format!(
@@ -445,6 +447,8 @@ mod tests {
             divisions: 3,
             cost_centres: 4,
             services: 12,
+            intake_cases: 26,
+            intake_waitlist: 3,
         };
 
         let body = success_body(&report);
