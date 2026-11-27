@@ -29,8 +29,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  checks:
+    name: Checks
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
+
   build:
     name: ${{ matrix.name }}
+    needs: checks
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

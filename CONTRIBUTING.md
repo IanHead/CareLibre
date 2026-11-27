@@ -14,7 +14,7 @@ make test
 make lint
 ```
 
-Before opening a pull request:
+CI runs only for releases. Run these checks locally before opening a pull request:
 
 1. `cargo fmt --all`
 2. `cargo clippy --workspace --all-targets -- -D warnings`

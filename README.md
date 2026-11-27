@@ -209,13 +209,17 @@ The planned first-run experience is described in
 [`docs/permissions.md`](docs/permissions.md).
 
 ## Development
+
+```sh
 make lint     # clippy, warnings as errors
 make fmt      # rustfmt
+make test     # unit and integration tests
 make build
 ```
 
-CI runs fmt, clippy, tests and migration validation against a live PostgreSQL
-service, plus a Docker image build.
+CI runs only for releases. Before opening a pull request, run fmt, clippy, tests
+and migration validation locally; the release workflow gates the build on the
+same checks (including a Docker image build) against a live PostgreSQL service.
 
 ## License
 

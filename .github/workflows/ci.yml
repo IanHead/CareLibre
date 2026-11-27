@@ -1,9 +1,25 @@
 name: CI
 
+# Development checks run locally (see CONTRIBUTING.md). GitHub Actions is the
+# release gate: the release workflow calls this workflow before building, and it
+# can be run manually when needed.
+
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to check. Defaults to the caller's ref."
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to check. Defaults to the selected branch."
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -36,6 +52,8 @@ jobs:
       JWT_SECRET: ci-only-secret-that-is-at-least-32-characters
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -67,6 +85,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Build image
         run: docker build --tag carelibre-server:ci .
