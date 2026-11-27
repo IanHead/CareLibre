@@ -1232,12 +1232,23 @@ pub async fn board(
     .await?;
     let limit = params.limit_per_stage.unwrap_or(30).clamp(1, 100);
 
+    Ok(Json(
+        board_for_filter(&state.db, &filter, flow, limit).await?,
+    ))
+}
+
+async fn board_for_filter(
+    db: &PgPool,
+    filter: &CaseFilter,
+    flow: FlowDto,
+    limit: u32,
+) -> Result<BoardDto, AppError> {
     let mut columns = Vec::with_capacity(flow.stages.len());
     for stage in &flow.stages {
         let mut stage_filter = filter.clone();
         stage_filter.stage_id = Some(stage.id);
-        let count = count_cases(&state.db, &stage_filter, None).await?;
-        let rows = load_case_rows(&state.db, &stage_filter, limit, None).await?;
+        let count = count_cases(db, &stage_filter, None).await?;
+        let rows = load_case_rows(db, &stage_filter, limit, None).await?;
         let next_cursor = (rows.len() as u32 == limit)
             .then(|| rows.last().map(|row| CaseCursor::from_row(row).encode()))
             .flatten();
@@ -1249,11 +1260,37 @@ pub async fn board(
         });
     }
 
-    Ok(Json(BoardDto {
+    Ok(BoardDto {
         flow,
         columns,
         generated_at: Utc::now(),
-    }))
+    })
+}
+
+/// Read-only board used by the server admin UI. It intentionally exposes only
+/// the default filters; the API is the place for arbitrary filtering.
+pub(crate) async fn admin_board(
+    db: &PgPool,
+    organisation_id: Uuid,
+    flow_id: Uuid,
+    limit: u32,
+) -> Result<BoardDto, AppError> {
+    let flows = load_flows(db, organisation_id, true).await?;
+    let flow = flows
+        .into_iter()
+        .find(|flow| flow.id == flow_id)
+        .ok_or_else(|| AppError::not_found("intake flow not found"))?;
+    let filter = CaseFilter {
+        organisation_id,
+        flow_id,
+        stage_id: None,
+        division_ids: None,
+        assignee: AssigneeFilter::Any,
+        lifecycle_statuses: None,
+        search: None,
+        include_closed: false,
+    };
+    board_for_filter(db, &filter, flow, limit.clamp(1, 100)).await
 }
 
 #[utoipa::path(

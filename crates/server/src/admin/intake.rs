@@ -3,12 +3,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
     Form,
 };
 use axum_extra::extract::cookie::CookieJar;
+use serde::Deserialize;
 use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -19,6 +20,7 @@ use crate::{
         csrf, html,
     },
     api::intake::{clone_flow_stages, load_flows, validate_fields, validate_key, validate_name},
+    api::intake_cases::admin_board,
     intake::{self, builtin_fields, ACTION_KEYS, STAGE_KINDS},
     permissions::Capability,
     state::AppState,
@@ -99,6 +101,7 @@ async fn list_page(
         ));
     }
 
+    body.push_str("<p><a class=\"button\" href=\"/admin/intake/board\">Open board</a></p>");
     body.push_str("<h2>Create a flow</h2>");
     body.push_str(&format!(
         "<form method=\"post\" action=\"/admin/intake\" class=\"form\">\
@@ -204,6 +207,122 @@ async fn list_page(
     (jar, Html(render(session, body))).into_response()
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct BoardParams {
+    flow_id: Option<Uuid>,
+}
+
+pub async fn board_page(
+    State(state): State<AppState>,
+    session: AdminSession,
+    Query(params): Query<BoardParams>,
+) -> Response {
+    if let Some(response) = session.guard(Capability::IntakeConfigure) {
+        return response;
+    }
+    let flows = match load_flows(&state.db, session.organisation_id, true).await {
+        Ok(flows) => flows,
+        Err(err) => {
+            tracing::error!(error = %err, "intake board flow load failed");
+            return failure("The intake board could not be loaded.");
+        }
+    };
+    let Some(flow) = params
+        .flow_id
+        .and_then(|id| flows.iter().find(|flow| flow.id == id))
+        .or_else(|| flows.iter().find(|flow| flow.is_active))
+        .or_else(|| flows.first())
+    else {
+        return failure("There are no intake flows yet.");
+    };
+    let board = match admin_board(&state.db, session.organisation_id, flow.id, 50).await {
+        Ok(board) => board,
+        Err(err) => {
+            tracing::error!(error = %err, "intake board load failed");
+            return failure("The intake board could not be loaded.");
+        }
+    };
+
+    let mut body = String::new();
+    body.push_str(&format!(
+        "<p><a href=\"/admin/intake\">← Intake configuration</a></p>\
+         <div class=\"page-head\"><div><h1>{}</h1><p class=\"muted\">Read-only board. The desktop client will become the interactive kanban.</p></div></div>\
+         <form method=\"get\" action=\"/admin/intake/board\" class=\"form\">\
+         <label>Flow<select name=\"flow_id\" onchange=\"this.form.submit()\">{}</select></label>\
+         </form>",
+        html::escape(&flow.name),
+        flows
+            .iter()
+            .map(|candidate| format!(
+                "<option value=\"{}\" {}>{} ({})</option>",
+                candidate.id,
+                if candidate.id == flow.id { "selected" } else { "" },
+                html::escape(&candidate.name),
+                html::escape(&candidate.subject_kind),
+            ))
+            .collect::<String>(),
+    ));
+
+    body.push_str("<div style=\"display:flex;gap:0.9rem;overflow-x:auto;padding-bottom:1rem;align-items:flex-start\">");
+    for column in &board.columns {
+        body.push_str(&format!(
+            "<div style=\"flex:0 0 260px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:0.75rem\">\
+             <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem\">\
+             <strong>{}</strong><span class=\"badge pk\">{}</span></div>",
+            html::escape(&column.stage.name),
+            column.count,
+        ));
+        if column.cards.is_empty() {
+            body.push_str("<p class=\"sub\">No cases.</p>");
+        }
+        for card in &column.cards {
+            let lifecycle = card
+                .lifecycle_status
+                .as_deref()
+                .map(|status| format!("<span class=\"badge id\">{status}</span>"))
+                .unwrap_or_default();
+            let division = card
+                .division
+                .as_ref()
+                .map(|division| format!(" · {}", html::escape(&division.name)))
+                .unwrap_or_default();
+            let assignee = card
+                .assignee
+                .as_ref()
+                .map(|user| format!(" · {}", html::escape(&user.full_name)))
+                .unwrap_or_else(|| " · unassigned".to_owned());
+            let waitlist = if card.waitlisted {
+                " · <span class=\"badge yes\">waitlist</span>"
+            } else {
+                ""
+            };
+            let due = card
+                .stage_due_at
+                .map(|due| format!(" · due {}", due.format("%d %b")))
+                .unwrap_or_default();
+            body.push_str(&format!(
+                "<div class=\"card\" style=\"margin:0 0 0.6rem 0;padding:0.7rem\">\
+                 <div><strong>{}</strong></div>\
+                 <div class=\"sub\" style=\"margin-top:0.25rem\">{}{}{}{}{}</div>\
+                 <div class=\"sub\" style=\"margin-top:0.35rem\">checklist {}/{}</div>\
+                 </div>",
+                html::escape(&card.display_name),
+                lifecycle,
+                division,
+                assignee,
+                waitlist,
+                due,
+                card.checklist.done,
+                card.checklist.total,
+            ));
+        }
+        body.push_str("</div>");
+    }
+    body.push_str("</div>");
+
+    (Html(render(&session, body))).into_response()
+}
+
 // ---------------------------------------------------------------------------
 // Flow page
 // ---------------------------------------------------------------------------
@@ -239,6 +358,10 @@ pub async fn flow_page(
         html::escape(flow.variant.as_deref().unwrap_or("no variant")),
     ));
 
+    body.push_str(&format!(
+        "<p><a class=\"button\" href=\"/admin/intake/board?flow_id={}\">Open board</a></p>",
+        flow.id
+    ));
     body.push_str("<h2>Flow settings</h2>");
     body.push_str(&format!(
         "<form method=\"post\" action=\"/admin/intake/flows/{}/update\" class=\"form\">\

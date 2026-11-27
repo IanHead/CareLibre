@@ -69,6 +69,7 @@ pub fn router() -> Router<AppState> {
             post(funding_sources::set_active),
         )
         .route("/intake", get(intake::list).post(intake::create_flow))
+        .route("/intake/board", get(intake::board_page))
         .route("/intake/flows/{id}", get(intake::flow_page))
         .route("/intake/flows/{id}/update", post(intake::update_flow))
         .route("/intake/flows/{id}/archive", post(intake::archive_flow))

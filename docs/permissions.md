@@ -18,8 +18,10 @@ Phase 1 is shipped:
 - capabilities resolved per request for the admin UI;
 - `/admin/permission-sets` and per-user access assignment;
 - navigation and pages gated by capability, with `403` on direct access;
-- intake capabilities, flow/stage policy schema, default flow seeding and
-  `/admin/intake` configuration (case board is the next slice).
+- intake capabilities, flow/stage policy schema, default flow seeding,
+  `/admin/intake` configuration, case creation/matching, board API,
+  transitions, onboarding, contact lifecycle and in-app notifications
+  (interactive desktop board is the next slice).
 
 Still outstanding:
 
