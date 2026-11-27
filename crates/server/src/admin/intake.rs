@@ -112,7 +112,7 @@ async fn list_page(
          <label>Subject kind<select name=\"subject_kind\">{}</select></label>\
          <label>Variant<input name=\"variant\" placeholder=\"standard\"></label>\
          <label>Description<textarea name=\"description\" rows=\"2\" placeholder=\"What is this path for?\"></textarea></label>\
-         <label>Stage movement<select name=\"stage_movement\"><option value=\"any\">Any stage</option><option value=\"sequential\">Sequential</option></select></label>\
+         <label>Stage movement<select name=\"stage_movement\"><option value=\"any\">Any stage</option><option value=\"sequential\" selected>Sequential</option></select></label>\
          <label>Parent flow<select name=\"parent_flow_id\"><option value=\"\">None</option>{}</select></label>\
          <label>Clone stages from<select name=\"clone_from_flow_id\"><option value=\"\">Same subject kind default</option>{}</select></label>\
          </div>\
@@ -718,7 +718,13 @@ async fn create_flow_inner(
     let clone_from_flow_id = parse_uuid(form.get("clone_from_flow_id"));
     let variant = optional_text(form, "variant");
     let description = optional_text(form, "description");
-    let stage_movement = optional_text(form, "stage_movement").unwrap_or_else(|| "any".to_owned());
+    let stage_movement = optional_text(form, "stage_movement").unwrap_or_else(|| {
+        if subject_kind == "client" {
+            "sequential".to_owned()
+        } else {
+            "any".to_owned()
+        }
+    });
     if !matches!(stage_movement.as_str(), "any" | "sequential") {
         return Err("Choose a valid stage movement.".to_owned());
     }

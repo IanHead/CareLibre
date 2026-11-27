@@ -967,6 +967,8 @@ enforce both gates.
 
 When a flow has `stage_movement = "sequential"`, only the immediately previous and next
 stages are accepted. With `stage_movement = "any"`, any non-terminal stage is accepted.
+Client flows are seeded as sequential; worker, other-contact and organisation flows default
+to free movement. Admins can change this per flow.
 
 If `override=true`, steps 5 and 6 may be skipped by a user with `intake.configure` (or
 `intake.override` if added later), and a reason is required.

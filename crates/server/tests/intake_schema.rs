@@ -54,6 +54,17 @@ async fn seeds_default_flows_stages_and_policies() {
             .unwrap();
     assert_eq!(flows, 7);
 
+    let client_flows_are_sequential: bool = sqlx::query_scalar(
+        "SELECT bool_and(stage_movement = 'sequential')
+         FROM intake_flows
+         WHERE organisation_id = $1 AND subject_kind = 'client'",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert!(client_flows_are_sequential);
+
     let stages_per_flow: Vec<i64> = sqlx::query_scalar(
         "SELECT count(*) FROM intake_stages
          WHERE organisation_id = $1 GROUP BY flow_id",

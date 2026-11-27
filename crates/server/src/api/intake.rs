@@ -702,7 +702,13 @@ pub async fn create_flow(
         ensure_division_exists(&state.db, auth.organisation_id, division).await?;
     }
 
-    let stage_movement = payload.stage_movement.as_deref().unwrap_or("any");
+    let stage_movement = payload.stage_movement.as_deref().unwrap_or_else(|| {
+        if payload.subject_kind == "client" {
+            "sequential"
+        } else {
+            "any"
+        }
+    });
     if !matches!(stage_movement, "any" | "sequential") {
         return Err(AppError::validation("unknown stage movement"));
     }

@@ -242,6 +242,14 @@ async fn create_board_detail_and_onboard_a_case() {
     let flow = fx.flow("client_aged_care").await;
     let flow_id = flow["id"].as_str().unwrap();
     let onboarded = Fixture::stage_id(&flow, "onboarded");
+    let (status, _) = fx
+        .call(
+            Method::PATCH,
+            &format!("/api/v1/intake/flows/{flow_id}"),
+            Some(json!({ "stage_movement": "any" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
 
     let (status, created) = fx
         .create_case(flow_id, "Mia", "Chen", "mia@example.com")
@@ -520,6 +528,14 @@ async fn contact_lifecycle_endpoint_records_history() {
     let flow = fx.flow("client_aged_care").await;
     let flow_id = flow["id"].as_str().unwrap();
     let onboarded = Fixture::stage_id(&flow, "onboarded");
+    let (status, _) = fx
+        .call(
+            Method::PATCH,
+            &format!("/api/v1/intake/flows/{flow_id}"),
+            Some(json!({ "stage_movement": "any" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
 
     let (_, created) = fx
         .create_case(flow_id, "Ana", "Ruiz", "ana@example.com")
