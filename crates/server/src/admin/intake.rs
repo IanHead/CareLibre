@@ -30,7 +30,6 @@ const ACTIVE: &str = "/admin/intake";
 struct CustomFieldRow {
     key: String,
     label: String,
-    section: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -621,10 +620,12 @@ async fn create_flow_inner(
         sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM intake_flows
              WHERE organisation_id = $1 AND subject_kind = $2 AND is_active
+               AND id <> $3
              ORDER BY sort_order, id LIMIT 1",
         )
         .bind(session.organisation_id)
         .bind(&subject_kind)
+        .bind(id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|err| err.to_string())?
@@ -1499,7 +1500,7 @@ async fn field_options(
         })
         .collect();
     let custom = sqlx::query_as::<_, CustomFieldRow>(
-        "SELECT key, label, section
+        "SELECT key, label
          FROM custom_field_definitions
          WHERE organisation_id = $1 AND entity_type = 'contact' AND is_active
          ORDER BY sort_order, label, key",
@@ -1511,7 +1512,7 @@ async fn field_options(
         options.push(FieldOption {
             key: format!("custom:{}", field.key),
             label: field.label,
-            section: field.section.unwrap_or_else(|| "Custom fields".to_owned()),
+            section: "Custom fields".to_owned(),
         });
     }
     options.sort_by(|left, right| {

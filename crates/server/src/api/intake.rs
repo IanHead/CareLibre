@@ -736,10 +736,12 @@ pub async fn create_flow(
             sqlx::query_scalar::<_, Uuid>(
                 "SELECT id FROM intake_flows
                  WHERE organisation_id = $1 AND subject_kind = $2 AND is_active
+                   AND id <> $3
                  ORDER BY sort_order, id LIMIT 1",
             )
             .bind(auth.organisation_id)
             .bind(&payload.subject_kind)
+            .bind(flow_id)
             .fetch_optional(&mut *tx)
             .await?
         }
