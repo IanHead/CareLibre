@@ -249,6 +249,12 @@ impl<'a, 'c> People<'a, 'c> {
         self.names.duplicated()
     }
 
+    /// Hand the name book to another part of the seed so later contacts keep
+    /// the same uniqueness guarantees.
+    pub fn into_name_book(self) -> NameBook {
+        self.names
+    }
+
     // ------------------------------------------------------------------
     // External organisations
     // ------------------------------------------------------------------

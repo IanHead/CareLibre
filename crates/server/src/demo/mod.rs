@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 use crate::funding;
 
+mod intake_cases;
 mod names;
 mod people;
 
@@ -161,6 +162,8 @@ pub struct SeedReport {
     pub divisions: usize,
     pub cost_centres: usize,
     pub services: usize,
+    pub intake_cases: usize,
+    pub intake_waitlist: usize,
 }
 
 impl SeedReport {
@@ -179,6 +182,10 @@ impl SeedReport {
                 self.duplicate_names
             ),
             format!("  shifts:       {}", self.shifts),
+            format!(
+                "  intake:       {} cases, {} waitlist entries",
+                self.intake_cases, self.intake_waitlist
+            ),
             format!("  sites:        {}", self.sites),
             format!("  constraints:  {}", self.constraints),
             format!(
@@ -226,14 +233,28 @@ pub async fn seed(pool: &PgPool) -> anyhow::Result<SeedReport> {
     let services = insert_services(&mut tx, organisation, &divisions, &mut rng).await?;
     let custom_fields = insert_custom_fields(&mut tx, organisation).await?;
 
-    let (clients, staff, duplicate_names) = {
+    let (clients, staff, duplicate_names, mut names) = {
         let mut people = People::new(&mut tx, &mut rng, organisation);
         let networking = people.external_organisations().await?;
         let clients = people.clients(&networking, &custom_fields).await?;
         let staff = people.staff(&custom_fields).await?;
         people.flush().await?;
-        (clients, staff, people.duplicate_names())
+        (
+            clients,
+            staff,
+            people.duplicate_names(),
+            people.into_name_book(),
+        )
     };
+    let (intake_cases, intake_waitlist) = intake_cases::insert(
+        &mut tx,
+        &mut rng,
+        organisation,
+        &mut names,
+        &divisions,
+        &services,
+    )
+    .await?;
     let Staff {
         ids: staff,
         conflicts,
@@ -315,6 +336,8 @@ pub async fn seed(pool: &PgPool) -> anyhow::Result<SeedReport> {
         divisions: divisions.len(),
         cost_centres: cost_centres.len(),
         services: services.len(),
+        intake_cases,
+        intake_waitlist,
     })
 }
 

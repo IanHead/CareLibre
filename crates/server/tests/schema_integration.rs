@@ -1621,3 +1621,103 @@ async fn funding_sources_packages_and_agreements_are_tenant_scoped() {
 
     tx.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn deleting_waitlist_references_keeps_the_tenant() {
+    let pool = pool().await;
+    let mut tx = pool.begin().await.expect("transaction");
+    let organisation = create_organisation(&mut tx).await;
+    let contact = create_contact(&mut tx, organisation).await;
+
+    let division = Uuid::now_v7();
+    sqlx::query("INSERT INTO divisions (id, organisation_id, name) VALUES ($1, $2, 'North')")
+        .bind(division)
+        .bind(organisation)
+        .execute(&mut *tx)
+        .await
+        .expect("insert division");
+
+    let service = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO services
+            (id, organisation_id, division_id, code, name, funding_scheme)
+         VALUES ($1, $2, $3, 'SVC-WAITLIST', 'Personal care', 'ndis')",
+    )
+    .bind(service)
+    .bind(organisation)
+    .bind(division)
+    .execute(&mut *tx)
+    .await
+    .expect("insert service");
+
+    let (flow, stage): (Uuid, Uuid) = sqlx::query_as(
+        "SELECT flow_id, id FROM intake_stages
+         WHERE organisation_id = $1
+         ORDER BY sort_order, id
+         LIMIT 1",
+    )
+    .bind(organisation)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("seeded intake stage");
+
+    let case = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO intake_cases
+            (id, organisation_id, flow_id, stage_id, contact_id, subject_kind, display_name)
+         VALUES ($1, $2, $3, $4, $5, 'client', 'Waitlist Test')",
+    )
+    .bind(case)
+    .bind(organisation)
+    .bind(flow)
+    .bind(stage)
+    .bind(contact)
+    .execute(&mut *tx)
+    .await
+    .expect("insert case");
+
+    sqlx::query(
+        "INSERT INTO intake_waitlist_entries
+            (id, organisation_id, case_id, service_id, division_id)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(organisation)
+    .bind(case)
+    .bind(service)
+    .bind(division)
+    .execute(&mut *tx)
+    .await
+    .expect("insert waitlist entry");
+
+    sqlx::query("DELETE FROM services WHERE organisation_id = $1 AND id = $2")
+        .bind(organisation)
+        .bind(service)
+        .execute(&mut *tx)
+        .await
+        .expect("delete service");
+    sqlx::query("DELETE FROM divisions WHERE organisation_id = $1 AND id = $2")
+        .bind(organisation)
+        .bind(division)
+        .execute(&mut *tx)
+        .await
+        .expect("delete division");
+
+    let (tenant, service_id, division_id): (Uuid, Option<Uuid>, Option<Uuid>) = sqlx::query_as(
+        "SELECT organisation_id, service_id, division_id
+         FROM intake_waitlist_entries
+         WHERE organisation_id = $1 AND case_id = $2",
+    )
+    .bind(organisation)
+    .bind(case)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("waitlist entry survives");
+
+    assert_eq!(tenant, organisation, "the tenant column must be preserved");
+    assert_eq!(service_id, None);
+    assert_eq!(division_id, None);
+
+    tx.rollback().await.unwrap();
+}
