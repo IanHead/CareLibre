@@ -661,15 +661,17 @@ pools.
 
 ### `GET /api/v1/intake/board`
 
-The board is **single-flow** in v1. The client chooses a flow with a selector or tabs.
-Showing several flows merged by stage kind is deliberately deferred, because stage ids,
-fields, actions and checklists are flow-specific.
+The board may show one flow or merge every active flow into shared stage columns.
+Columns merge by stage `key`: stages with the same key across selected flows share one
+column, and each column carries the flow-specific `stage_ids` it represents. Cards retain
+their own flow and stage metadata so transitions remain flow-specific.
 
 Query:
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `flow_id` | uuid | Required |
+| `flow_id` | comma-separated uuids | Optional; omit for every active flow |
+| `subject_kind` | text | Optional `client`, `worker`, `other_contact` or `organisation` |
 | `division_id` | uuid | Optional |
 | `include_descendants` | bool | Default `true`; includes child divisions |
 | `assignee_user_id` | uuid / `me` / `unassigned` | Optional |
@@ -682,10 +684,12 @@ Response `200`:
 
 ```json
 {
-  "flow": { "…": "Flow summary" },
+  "flow": { "…": "Present only when exactly one flow is selected" },
+  "flows": [{ "…": "Every selected flow" }],
   "columns": [
     {
-      "stage": { "…": "Stage summary" },
+      "stage": { "…": "Canonical stage for the merged column" },
+      "stage_ids": ["…"],
       "count": 12,
       "cards": [CaseSummary, …],
       "next_cursor": "opaque-cursor-or-null"
@@ -695,14 +699,15 @@ Response `200`:
 }
 ```
 
-- `count` is the total in the column for the current filters, not the number of cards
-  returned.
+- Columns are ordered by stage kind, then configured sort order, then stage key.
+- `count` is the total in the merged column for the current filters, not the number of
+  cards returned.
 - Cards are ordered by `priority DESC`, `stage_entered_at ASC`, `id ASC`.
-- `next_cursor` is opaque. Pass it to `GET /intake/cases` with the same filters to fetch
-  more for that column.
+- `next_cursor` is opaque. Pass it to `GET /intake/cases` with the same filters and the
+  column's `stage_ids` to fetch more for that column.
 - Onboarded cases are included while `closed_at IS NULL`. Cancelled/archived cases require
   `include_closed=true`.
-- If `flow_id` is unknown or belongs to another organisation, `404`.
+- If a supplied flow id is unknown or belongs to another organisation, `404`.
 
 ### `GET /api/v1/intake/cases`
 
@@ -710,7 +715,7 @@ Same filters as the board, plus:
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `stage_id` | uuid | Required for column paging |
+| `stage_id` | comma-separated uuids | Optional; use a merged column's `stage_ids` for paging |
 | `cursor` | string | Opaque cursor from the board or previous page |
 | `limit` | int | Default `50`, max `200` |
 

@@ -175,6 +175,10 @@ impl Fixture {
         family: &str,
         email: &str,
     ) -> (StatusCode, Value) {
+        let phone = format!(
+            "04{:08}",
+            email.bytes().map(u32::from).sum::<u32>() % 100_000_000
+        );
         self.call(
             Method::POST,
             "/api/v1/intake/cases",
@@ -184,7 +188,7 @@ impl Fixture {
                     "given_name": given,
                     "family_name": family,
                     "email": email,
-                    "phone": "0400 000 000",
+                    "phone": phone,
                     "date_of_birth": "1990-04-12"
                 },
                 "data": { "notes": "Test enquiry" }
@@ -618,6 +622,87 @@ async fn assignment_notifies_another_user() {
         .execute(&fx.pool)
         .await
         .unwrap();
+    fx.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires a migrated PostgreSQL database (DATABASE_URL)"]
+async fn board_merges_all_intake_paths_and_filters_by_flow_and_type() {
+    let fx = Fixture::new().await;
+    let client_flow = fx.flow("client_standard").await;
+    let worker_flow = fx.flow("worker_standard").await;
+    let client_flow_id = client_flow["id"].as_str().unwrap();
+    let worker_flow_id = worker_flow["id"].as_str().unwrap();
+
+    let (status, _) = fx
+        .create_case(client_flow_id, "Mia", "Chen", "mia.all@example.com")
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, worker) = fx
+        .create_case(worker_flow_id, "Sam", "Lee", "sam.all@example.com")
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{worker}");
+
+    let (status, all) = fx.call(Method::GET, "/api/v1/intake/board", None).await;
+    assert_eq!(status, StatusCode::OK, "{all}");
+    assert!(all["flows"].as_array().unwrap().len() >= 8);
+    assert!(all["flow"].is_null());
+    let enquiry = all["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|column| column["stage"]["kind"] == "enquiry")
+        .unwrap();
+    assert_eq!(enquiry["count"], 2);
+    let flow_names: Vec<&str> = enquiry["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|card| card["flow"]["name"].as_str())
+        .collect();
+    assert!(flow_names.iter().any(|name| name.contains("Client")));
+    assert!(flow_names.iter().any(|name| name.contains("Worker")));
+
+    let (status, client_only) = fx
+        .call(
+            Method::GET,
+            &format!("/api/v1/intake/board?flow_id={client_flow_id}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{client_only}");
+    assert_eq!(client_only["flow"]["key"], "client_standard");
+    let enquiry = client_only["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|column| column["stage"]["kind"] == "enquiry")
+        .unwrap();
+    assert_eq!(enquiry["count"], 1);
+    assert_eq!(enquiry["cards"][0]["flow"]["key"], "client_standard");
+
+    let (status, workers) = fx
+        .call(
+            Method::GET,
+            "/api/v1/intake/board?subject_kind=worker",
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{workers}");
+    assert!(workers["flows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|flow| flow["subject_kind"] == "worker"));
+    let enquiry = workers["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|column| column["stage"]["kind"] == "enquiry")
+        .unwrap();
+    assert_eq!(enquiry["count"], 1);
+    assert_eq!(enquiry["cards"][0]["flow"]["key"], "worker_standard");
+
     fx.cleanup().await;
 }
 

@@ -185,7 +185,11 @@ pub struct CaseCreateResponse {
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct BoardColumnDto {
+    /// Canonical stage for this merged column. Cards may belong to a
+    /// flow-specific stage with the same key.
     pub stage: StageRefDto,
+    /// Every flow-specific stage represented by this column.
+    pub stage_ids: Vec<Uuid>,
     pub count: i64,
     pub cards: Vec<CaseSummaryDto>,
     pub next_cursor: Option<String>,
@@ -193,7 +197,10 @@ pub struct BoardColumnDto {
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct BoardDto {
-    pub flow: FlowDto,
+    /// Present only when a single flow is selected.
+    pub flow: Option<FlowDto>,
+    /// All selected flows, merged into shared stage-key columns.
+    pub flows: Vec<FlowDto>,
     pub columns: Vec<BoardColumnDto>,
     pub generated_at: DateTime<Utc>,
 }
@@ -379,7 +386,10 @@ pub struct ContactMatchParams {
 
 #[derive(Debug, Deserialize)]
 pub struct BoardParams {
-    pub flow_id: Uuid,
+    /// Comma-separated flow ids. Omit to merge every active flow.
+    pub flow_id: Option<String>,
+    /// Optional subject-kind filter applied before columns are merged.
+    pub subject_kind: Option<String>,
     pub division_id: Option<Uuid>,
     pub include_descendants: Option<bool>,
     pub assignee_user_id: Option<String>,
@@ -391,8 +401,11 @@ pub struct BoardParams {
 
 #[derive(Debug, Deserialize)]
 pub struct CaseListParams {
-    pub flow_id: Uuid,
-    pub stage_id: Option<Uuid>,
+    /// Comma-separated flow ids. Omit to use every active flow.
+    pub flow_id: Option<String>,
+    /// Comma-separated stage ids for a merged board column.
+    pub stage_id: Option<String>,
+    pub subject_kind: Option<String>,
     pub division_id: Option<Uuid>,
     pub include_descendants: Option<bool>,
     pub assignee_user_id: Option<String>,
@@ -633,8 +646,8 @@ enum AssigneeFilter {
 #[derive(Clone, Debug)]
 struct CaseFilter {
     organisation_id: Uuid,
-    flow_id: Uuid,
-    stage_id: Option<Uuid>,
+    flow_ids: Vec<Uuid>,
+    stage_ids: Option<Vec<Uuid>>,
     division_ids: Option<Vec<Uuid>>,
     assignee: AssigneeFilter,
     lifecycle_statuses: Option<Vec<String>>,
@@ -645,11 +658,13 @@ struct CaseFilter {
 fn push_case_filters(query: &mut QueryBuilder<'_, Postgres>, filter: &CaseFilter) {
     query.push(" WHERE c.organisation_id = ");
     query.push_bind(filter.organisation_id);
-    query.push(" AND c.flow_id = ");
-    query.push_bind(filter.flow_id);
-    if let Some(stage_id) = filter.stage_id {
-        query.push(" AND c.stage_id = ");
-        query.push_bind(stage_id);
+    query.push(" AND c.flow_id = ANY(");
+    query.push_bind(filter.flow_ids.clone());
+    query.push(")");
+    if let Some(stage_ids) = &filter.stage_ids {
+        query.push(" AND c.stage_id = ANY(");
+        query.push_bind(stage_ids.clone());
+        query.push(")");
     }
     if !filter.include_closed {
         query.push(" AND c.closed_at IS NULL");
@@ -1212,15 +1227,36 @@ pub async fn board(
     Query(params): Query<BoardParams>,
 ) -> Result<Json<BoardDto>, AppError> {
     auth.require(Capability::IntakeRead)?;
-    let flows = load_flows(&state.db, auth.organisation_id, true).await?;
-    let flow = flows
+    let requested = parse_uuid_list(params.flow_id.as_deref())?;
+    let subject_kind = params
+        .subject_kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(subject_kind) = subject_kind {
+        if !intake::is_subject_kind(subject_kind) {
+            return Err(AppError::validation("unknown subject_kind"));
+        }
+    }
+
+    let flows = load_flows(&state.db, auth.organisation_id, true)
+        .await?
         .into_iter()
-        .find(|flow| flow.id == params.flow_id)
-        .ok_or_else(|| AppError::not_found("intake flow not found"))?;
+        .filter(|flow| {
+            flow.is_active
+                && (requested.is_empty() || requested.contains(&flow.id))
+                && subject_kind.is_none_or(|kind| flow.subject_kind == kind)
+        })
+        .collect::<Vec<_>>();
+    if flows.is_empty() {
+        return Err(AppError::not_found("no matching intake flows"));
+    }
+
+    let flow_ids = flows.iter().map(|flow| flow.id).collect();
     let filter = build_filter(
         &state,
         &auth,
-        params.flow_id,
+        flow_ids,
         None,
         params.division_id,
         params.include_descendants,
@@ -1233,27 +1269,60 @@ pub async fn board(
     let limit = params.limit_per_stage.unwrap_or(30).clamp(1, 100);
 
     Ok(Json(
-        board_for_filter(&state.db, &filter, flow, limit).await?,
+        board_for_filter(&state.db, &filter, flows, limit).await?,
     ))
+}
+
+struct MergedColumn {
+    stage: StageRefDto,
+    stage_ids: Vec<Uuid>,
+    sort_order: i32,
 }
 
 async fn board_for_filter(
     db: &PgPool,
     filter: &CaseFilter,
-    flow: FlowDto,
+    flows: Vec<FlowDto>,
     limit: u32,
 ) -> Result<BoardDto, AppError> {
-    let mut columns = Vec::with_capacity(flow.stages.len());
-    for stage in &flow.stages {
+    let mut merged: BTreeMap<String, MergedColumn> = BTreeMap::new();
+    for flow in &flows {
+        for stage in &flow.stages {
+            let entry = merged
+                .entry(stage.key.clone())
+                .or_insert_with(|| MergedColumn {
+                    stage: stage_to_ref(stage),
+                    stage_ids: Vec::new(),
+                    sort_order: stage.sort_order,
+                });
+            if !entry.stage_ids.contains(&stage.id) {
+                entry.stage_ids.push(stage.id);
+            }
+            entry.sort_order = entry.sort_order.min(stage.sort_order);
+        }
+    }
+
+    let mut definitions = merged.into_values().collect::<Vec<_>>();
+    definitions.sort_by_key(|column| {
+        (
+            stage_kind_rank(&column.stage.kind),
+            column.sort_order,
+            column.stage.key.clone(),
+        )
+    });
+
+    let mut columns = Vec::with_capacity(definitions.len());
+    for definition in definitions {
         let mut stage_filter = filter.clone();
-        stage_filter.stage_id = Some(stage.id);
+        stage_filter.stage_ids = Some(definition.stage_ids.clone());
         let count = count_cases(db, &stage_filter, None).await?;
         let rows = load_case_rows(db, &stage_filter, limit, None).await?;
         let next_cursor = (rows.len() as u32 == limit)
             .then(|| rows.last().map(|row| CaseCursor::from_row(row).encode()))
             .flatten();
         columns.push(BoardColumnDto {
-            stage: stage_to_ref(stage),
+            stage: definition.stage,
+            stage_ids: definition.stage_ids,
             count,
             cards: rows.iter().map(summary).collect(),
             next_cursor,
@@ -1261,10 +1330,24 @@ async fn board_for_filter(
     }
 
     Ok(BoardDto {
-        flow,
+        flow: (flows.len() == 1).then(|| flows[0].clone()),
+        flows,
         columns,
         generated_at: Utc::now(),
     })
+}
+
+fn stage_kind_rank(kind: &str) -> u8 {
+    match kind {
+        "enquiry" => 0,
+        "eligibility" => 1,
+        "risk_assessment" => 2,
+        "service_planning" => 3,
+        "custom" => 4,
+        "onboarded" => 5,
+        "cancelled" => 6,
+        _ => 7,
+    }
 }
 
 /// Read-only board used by the server admin UI. It intentionally exposes only
@@ -1282,15 +1365,15 @@ pub(crate) async fn admin_board(
         .ok_or_else(|| AppError::not_found("intake flow not found"))?;
     let filter = CaseFilter {
         organisation_id,
-        flow_id,
-        stage_id: None,
+        flow_ids: vec![flow_id],
+        stage_ids: None,
         division_ids: None,
         assignee: AssigneeFilter::Any,
         lifecycle_statuses: None,
         search: None,
         include_closed: false,
     };
-    board_for_filter(db, &filter, flow, limit.clamp(1, 100)).await
+    board_for_filter(db, &filter, vec![flow], limit.clamp(1, 100)).await
 }
 
 #[utoipa::path(
@@ -1312,11 +1395,37 @@ pub async fn list_cases(
     Query(params): Query<CaseListParams>,
 ) -> Result<Json<CaseListDto>, AppError> {
     auth.require(Capability::IntakeRead)?;
+    let requested = parse_uuid_list(params.flow_id.as_deref())?;
+    let subject_kind = params
+        .subject_kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(subject_kind) = subject_kind {
+        if !intake::is_subject_kind(subject_kind) {
+            return Err(AppError::validation("unknown subject_kind"));
+        }
+    }
+    let flows = load_flows(&state.db, auth.organisation_id, true)
+        .await?
+        .into_iter()
+        .filter(|flow| {
+            flow.is_active
+                && (requested.is_empty() || requested.contains(&flow.id))
+                && subject_kind.is_none_or(|kind| flow.subject_kind == kind)
+        })
+        .collect::<Vec<_>>();
+    if flows.is_empty() {
+        return Err(AppError::not_found("no matching intake flows"));
+    }
+    let flow_ids = flows.iter().map(|flow| flow.id).collect();
+    let stage_ids = parse_uuid_list(params.stage_id.as_deref())?;
+    let stage_ids = (!stage_ids.is_empty()).then_some(stage_ids);
     let filter = build_filter(
         &state,
         &auth,
-        params.flow_id,
-        params.stage_id,
+        flow_ids,
+        stage_ids,
         params.division_id,
         params.include_descendants,
         params.assignee_user_id.as_deref(),
@@ -1345,8 +1454,8 @@ pub async fn list_cases(
 async fn build_filter(
     state: &AppState,
     auth: &AuthContext,
-    flow_id: Uuid,
-    stage_id: Option<Uuid>,
+    flow_ids: Vec<Uuid>,
+    stage_ids: Option<Vec<Uuid>>,
     division_id: Option<Uuid>,
     include_descendants: Option<bool>,
     assignee: Option<&str>,
@@ -1400,8 +1509,8 @@ async fn build_filter(
 
     Ok(CaseFilter {
         organisation_id: auth.organisation_id,
-        flow_id,
-        stage_id,
+        flow_ids,
+        stage_ids,
         division_ids,
         assignee,
         lifecycle_statuses,
@@ -3211,6 +3320,22 @@ async fn write_audit(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+fn parse_uuid_list(value: Option<&str>) -> Result<Vec<Uuid>, AppError> {
+    value
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .map(|part| {
+                    Uuid::parse_str(part)
+                        .map_err(|_| AppError::validation(format!("invalid uuid: {part}")))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
 }
 
 fn version_conflict(current_version: i32, case_id: Uuid) -> AppError {
